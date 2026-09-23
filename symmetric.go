@@ -352,24 +352,27 @@ func (ctx *symmetricKeyCipher) encryptKey(cek []byte, alg KeyAlgorithm) (recipie
 			header:       &rawHeader{},
 		}, nil
 	case PBES2_HS256_A128KW, PBES2_HS384_A192KW, PBES2_HS512_A256KW:
-		if len(ctx.p2s) == 0 {
-			salt, err := getRandomSalt(defaultP2SSize)
-			if err != nil {
+		// The encrypter is shared by every message it encrypts, so the defaults are resolved per message rather
+		// than stored on it: a generated salt must not be reused, and storing it races with concurrent calls.
+		p2s, p2c := ctx.p2s, ctx.p2c
+
+		if len(p2s) == 0 {
+			var err error
+			if p2s, err = getRandomSalt(defaultP2SSize); err != nil {
 				return recipientInfo{}, err
 			}
-			ctx.p2s = salt
 		}
 
-		if ctx.p2c <= 0 {
-			ctx.p2c = defaultP2C
+		if p2c <= 0 {
+			p2c = defaultP2C
 		}
 
 		// salt is UTF8(Alg) || 0x00 || Salt Input
-		salt := bytes.Join([][]byte{[]byte(alg), ctx.p2s}, []byte{0x00})
+		salt := bytes.Join([][]byte{[]byte(alg), p2s}, []byte{0x00})
 
 		// derive key
 		keyLen, h := getPbkdf2Params(alg)
-		key, err := pbkdf2.Key(h, string(ctx.key), salt, ctx.p2c, keyLen)
+		key, err := pbkdf2.Key(h, string(ctx.key), salt, p2c, keyLen)
 		if err != nil {
 			return recipientInfo{}, err
 		}
@@ -387,11 +390,11 @@ func (ctx *symmetricKeyCipher) encryptKey(cek []byte, alg KeyAlgorithm) (recipie
 
 		header := &rawHeader{}
 
-		if err = header.set(headerP2C, ctx.p2c); err != nil {
+		if err = header.set(headerP2C, p2c); err != nil {
 			return recipientInfo{}, err
 		}
 
-		if err = header.set(headerP2S, newBuffer(ctx.p2s)); err != nil {
+		if err = header.set(headerP2S, newBuffer(p2s)); err != nil {
 			return recipientInfo{}, err
 		}
 
