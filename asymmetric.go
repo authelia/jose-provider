@@ -286,8 +286,9 @@ func (ctx rsaDecrypterSigner) decrypt(jek []byte, alg KeyAlgorithm, generator ke
 			_ = recover()
 		}()
 
-		// Perform some input validation.
-		keyBytes := ctx.privateKey.PublicKey.N.BitLen() / 8
+		// Perform some input validation. The ciphertext is the octet length of the modulus, which rounds up: a
+		// modulus whose bit length is not a multiple of eight still takes a whole final octet.
+		keyBytes := ctx.privateKey.PublicKey.Size()
 		if keyBytes != len(jek) {
 			// Input size is incorrect, the encrypted payload should always match
 			// the size of the public modulus (e.g. using a 2048 bit key will

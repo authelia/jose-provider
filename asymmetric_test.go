@@ -775,3 +775,36 @@ func TestEd25519AlgorithmReachesTheHeader(t *testing.T) {
 		}
 	}
 }
+
+// RFC 8017 Section 7.2.2 sizes an RSAES-PKCS1-v1_5 ciphertext at the octet length of the modulus. The expected
+// length was previously taken as the bit length divided by eight, rounded down, so for a modulus whose bit length is
+// not a multiple of eight every genuine RSA1_5 message was rejected as the wrong size.
+func TestRSA1_5DecryptsWithModulusNotAMultipleOfEightBits(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2052)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if key.N.BitLen()%8 == 0 {
+		t.Fatalf("expected a modulus whose bit length is not a multiple of 8, got %d bits", key.N.BitLen())
+	}
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: RSA1_5, Key: &key.PublicKey}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := encrypter.Encrypt([]byte("hello world"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plaintext, err := obj.Decrypt(key)
+	if err != nil {
+		t.Fatalf("failed to decrypt RSA1_5 message for a %d bit modulus: %v", key.N.BitLen(), err)
+	}
+
+	if string(plaintext) != "hello world" {
+		t.Fatalf("decrypted %q, want %q", plaintext, "hello world")
+	}
+}
