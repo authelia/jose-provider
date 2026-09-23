@@ -216,3 +216,39 @@ func TestEncodeClaimsTimeValues(t *testing.T) {
 		}
 	}
 }
+
+// RFC 7519 Section 2 allows a NumericDate to be non-integer, and the type documents that such a value is rounded to
+// the nearest second. It was truncated toward zero instead, so an "nbf" just short of the next second was stored as
+// the second before and a token was accepted up to a second before it became valid.
+func TestNumericDateUnmarshalRoundsToNearestSecond(t *testing.T) {
+	testCases := []struct {
+		name     string
+		in       string
+		expected NumericDate
+	}{
+		{"ShouldKeepAWholeSecond", "1700000000", 1700000000},
+		{"ShouldRoundDown", "1700000000.4", 1700000000},
+		{"ShouldRoundHalfUp", "1700000000.5", 1700000001},
+		{"ShouldRoundUp", "1700000000.99", 1700000001},
+		{"ShouldRoundNegativeAwayFromZero", "-1.6", -2},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var n NumericDate
+
+			assert.NoError(t, json.Unmarshal([]byte(tc.in), &n))
+			assert.Equal(t, n, tc.expected)
+		})
+	}
+
+	t.Run("ShouldNotAcceptATokenBeforeItsFractionalNotBefore", func(t *testing.T) {
+		var c Claims
+
+		assert.NoError(t, json.Unmarshal([]byte(`{"nbf":1700000000.99}`), &c))
+
+		now := time.Unix(1700000000, int64(500*time.Millisecond))
+
+		assert.ErrorIs(t, c.ValidateWithLeeway(Expected{Time: now}, 0), ErrNotValidYet)
+	})
+}
