@@ -787,6 +787,60 @@ func TestSignerB64NonDetached(t *testing.T) {
 	}
 }
 
+func TestSignerB64NonDetachedRejectsWhitespaceInCompact(t *testing.T) {
+	key := []byte("0123456789ABCDEF0123456789ABCDEF")
+
+	opts := new(SignerOptions)
+	opts.WithBase64(false)
+
+	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	for _, input := range []string{"a b", "a\tb", "a\nb", "a b"} {
+		t.Run(fmt.Sprintf("%q", input), func(t *testing.T) {
+			obj, err := signer.Sign([]byte(input))
+			if err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+
+			if _, err = obj.CompactSerialize(); !errors.Is(err, ErrNotSupported) {
+				t.Fatalf("CompactSerialize error = %v, want ErrNotSupported", err)
+			}
+
+			// The payload can still be detached, or carried by the JSON serialization.
+			detached, err := obj.DetachedCompactSerialize()
+			if err != nil {
+				t.Fatalf("DetachedCompactSerialize: %v", err)
+			}
+
+			parsed, err := ParseDetached(detached, []byte(input), []SignatureAlgorithm{HS256})
+			if err != nil {
+				t.Fatalf("ParseDetached: %v", err)
+			}
+
+			if _, err = parsed.Verify(key); err != nil {
+				t.Fatalf("Verify detached: %v", err)
+			}
+
+			parsed, err = ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{HS256})
+			if err != nil {
+				t.Fatalf("ParseSigned JSON: %v", err)
+			}
+
+			output, err := parsed.Verify(key)
+			if err != nil {
+				t.Fatalf("Verify JSON: %v", err)
+			}
+
+			if string(output) != input {
+				t.Errorf("payload = %q, want %q", output, input)
+			}
+		})
+	}
+}
+
 func BenchmarkParseSigned(b *testing.B) {
 	msg := `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`
 	for i := 0; i < b.N; i++ {
