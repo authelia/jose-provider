@@ -808,3 +808,30 @@ func TestRSA1_5DecryptsWithModulusNotAMultipleOfEightBits(t *testing.T) {
 		t.Fatalf("decrypted %q, want %q", plaintext, "hello world")
 	}
 }
+
+// An ecdsa key without a curve does not match any algorithm, and was already rejected for that. Building the error
+// dereferenced the missing curve to describe it, so signing or verifying with such a key panicked instead.
+func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
+	t.Run("ShouldNotPanicWhenSigning", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: &ecdsa.PrivateKey{}}, nil)
+		if err != nil {
+			return
+		}
+
+		if _, err = signer.Sign([]byte("payload")); err == nil {
+			t.Fatal("signed with an ecdsa key without a curve")
+		}
+	})
+
+	t.Run("ShouldNotPanicWhenVerifying", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: ecTestKey256}, nil)
+		require.NoError(t, err)
+
+		obj, err := signer.Sign([]byte("payload"))
+		require.NoError(t, err)
+
+		if _, err = obj.Verify(&ecdsa.PublicKey{}); err == nil {
+			t.Fatal("verified with an ecdsa key without a curve")
+		}
+	})
+}
