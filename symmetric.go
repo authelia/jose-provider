@@ -457,6 +457,12 @@ func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipien
 
 	alg := headers.getAlgorithm()
 	if alg == DIRECT {
+		// RFC 7516 Section 5.2: the encrypted key is not authenticated, so one that is present would let other
+		// strings decrypt to the same message.
+		if len(recipient.encryptedKey) != 0 {
+			return nil, errors.New("go-jose/go-jose: invalid encrypted key: must be empty for dir")
+		}
+
 		return bytes.Clone(ctx.key), nil
 	}
 

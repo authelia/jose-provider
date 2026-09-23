@@ -528,7 +528,10 @@ func (ctx ecDecrypterSigner) decryptKey(headers rawHeader, recipient *recipientI
 	algorithm := headers.getAlgorithm()
 	switch algorithm {
 	case ECDH_ES:
-		// ECDH-ES uses direct key agreement, no key unwrapping necessary.
+		if len(recipient.encryptedKey) != 0 {
+			return nil, errors.New("go-jose/go-jose: invalid encrypted key: must be empty for ECDH-ES")
+		}
+
 		return deriveKey(string(headers.getEncryption()), generator.keySize()), nil
 	case ECDH_ES_A128KW:
 		keySize = 16
