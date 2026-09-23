@@ -185,8 +185,7 @@ func ParseSignedAndEncrypted(s string,
 		return nil, err
 	}
 
-	contentType, _ := enc.Header.ExtraHeaders[jose.HeaderContentType].(string)
-	if strings.ToUpper(contentType) != "JWT" {
+	if !isNestedContentType(enc.Header.ExtraHeaders[jose.HeaderContentType]) {
 		return nil, ErrInvalidContentType
 	}
 
@@ -195,4 +194,19 @@ func ParseSignedAndEncrypted(s string,
 		enc:                        enc,
 		Headers:                    []jose.Header{enc.Header},
 	}, nil
+}
+
+func isNestedContentType(v any) bool {
+	var contentType string
+
+	switch v := v.(type) {
+	case jose.ContentType:
+		contentType = string(v)
+	case string:
+		contentType = v
+	default:
+		return false
+	}
+
+	return strings.EqualFold(contentType, "JWT")
 }

@@ -471,3 +471,54 @@ UCZVKEEDHzKfLO/iBgKjJQF7
 	rsaSigner  = mustMakeSigner(jose.RS256, testPrivRSAKey1)
 	hmacSigner = mustMakeSigner(jose.HS256, sharedKey)
 )
+
+// RFC 7519 Section 5.2 recommends "JWT" for the "cty" of a nested token, and RFC 7515 Section 4.1.10 makes the value
+// a media type, which compares case-insensitively. The parser accepted it in any case and from any string, but the
+// builder required a jose.ContentType of exactly "JWT", so an encrypter carrying a plain string or "jwt" was refused
+// although the token it produced would have parsed.
+func TestBuilderSignedAndEncryptedAcceptsContentTypeInAnyForm(t *testing.T) {
+	encryptionKey := []byte("itsa16bytesecret" + "itsa16bytesecret")
+	recipient := jose.Recipient{Algorithm: jose.DIRECT, Key: encryptionKey}
+
+	testCases := []struct {
+		name  string
+		opts  *jose.EncrypterOptions
+		valid bool
+	}{
+		{"ShouldAcceptContentType", (&jose.EncrypterOptions{}).WithContentType("JWT"), true},
+		{"ShouldAcceptLowercaseContentType", (&jose.EncrypterOptions{}).WithContentType("jwt"), true},
+		{"ShouldAcceptPlainString", (&jose.EncrypterOptions{}).WithHeader(jose.HeaderContentType, "JWT"), true},
+		{"ShouldRejectOtherContentType", (&jose.EncrypterOptions{}).WithContentType("application/json"), false},
+		{"ShouldRejectMissingContentType", nil, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encrypter, err := jose.NewEncrypter(jose.A128CBC_HS256, recipient, tc.opts)
+			require.NoError(t, err)
+
+			serialized, err := SignedAndEncrypted(rsaSigner, encrypter).Claims(&testClaims{"foo"}).Serialize()
+
+			if !tc.valid {
+				assert.ErrorIs(t, err, ErrInvalidContentType)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			parsed, err := ParseSignedAndEncrypted(serialized,
+				[]jose.KeyAlgorithm{jose.DIRECT},
+				[]jose.ContentEncryption{jose.A128CBC_HS256},
+				[]jose.SignatureAlgorithm{jose.RS256})
+			require.NoError(t, err)
+
+			nested, err := parsed.Decrypt(encryptionKey)
+			require.NoError(t, err)
+
+			out := &testClaims{}
+			require.NoError(t, nested.Claims(&testPrivRSAKey1.PublicKey, out))
+			assert.Equal(t, *out, testClaims{"foo"})
+		})
+	}
+}
