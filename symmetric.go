@@ -52,7 +52,49 @@ const (
 	defaultP2C = 600000
 	// Default salt size: 128 bits
 	defaultP2SSize = 16
+
+	// An unauthenticated attacker can set a high P2C value. Set an upper limit to avoid DoS attacks.
+	maxP2C = 1000000
+	// A message can carry many PBES2 recipients, and a JWK Set many keys under one "kid", each costing a
+	// derivation. Bound the total, leaving room for a few recipients at the default count.
+	maxP2CPerMessage = 2 * maxP2C
 )
+
+// pbes2Budget is the PBES2 iteration count one decryption may still spend.
+type pbes2Budget int
+
+func newPBES2Budget() *pbes2Budget {
+	budget := pbes2Budget(maxP2CPerMessage)
+
+	return &budget
+}
+
+// spend charges the derivation decryptKey is about to make, if it is going to make one. A count decryptKey will
+// reject costs nothing, and is left for decryptKey to report.
+func (b *pbes2Budget) spend(decrypter keyDecrypter, headers rawHeader) error {
+	if _, ok := decrypter.(*symmetricKeyCipher); !ok {
+		return nil
+	}
+
+	switch headers.getAlgorithm() {
+	case PBES2_HS256_A128KW, PBES2_HS384_A192KW, PBES2_HS512_A256KW:
+	default:
+		return nil
+	}
+
+	p2c, err := headers.getP2C()
+	if err != nil || p2c <= 0 || p2c > maxP2C {
+		return nil
+	}
+
+	if pbes2Budget(p2c) > *b {
+		return ErrPBES2WorkLimit
+	}
+
+	*b -= pbes2Budget(p2c)
+
+	return nil
+}
 
 // Dummy key cipher for shared symmetric key mode
 type symmetricKeyCipher struct {
@@ -477,9 +519,7 @@ func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipien
 		if p2c <= 0 {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: must be a positive integer")
 		}
-		if p2c > 1000000 {
-			// An unauthenticated attacker can set a high P2C value. Set an upper limit to avoid
-			// DoS attacks.
+		if p2c > maxP2C {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: too high")
 		}
 
