@@ -881,6 +881,73 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 	})
 }
 
+// RFC 7516 Section 5.2 and RFC 7518 Sections 5.2 and 5.3 fix the authentication tag at the cipher's tag length. The
+// tag was previously only required to be at least that long before it was joined to the ciphertext, so bytes could be
+// moved from the end of the ciphertext to the start of the tag, and a different string decrypted to the same message.
+func TestDecryptRejectsTagOfWrongLength(t *testing.T) {
+	shift := func(ciphertext, tag []byte) ([]byte, []byte) {
+		return ciphertext[:len(ciphertext)-1], append([]byte{ciphertext[len(ciphertext)-1]}, tag...)
+	}
+
+	for _, enc := range []ContentEncryption{A128GCM, A128CBC_HS256} {
+		t.Run("ShouldRejectContentTag"+string(enc), func(t *testing.T) {
+			key := make([]byte, getContentCipher(enc).keySize())
+
+			encrypter, err := NewEncrypter(enc, Recipient{Algorithm: DIRECT, Key: key}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			obj, err := encrypter.Encrypt([]byte("hello world"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			obj.ciphertext, obj.tag = shift(obj.ciphertext, obj.tag)
+
+			if _, err = obj.Decrypt(key); err == nil {
+				t.Fatal("decrypted a message whose tag was lengthened from its ciphertext")
+			}
+		})
+	}
+
+	t.Run("ShouldRejectKeyWrapTag", func(t *testing.T) {
+		keys := [][]byte{make([]byte, 16), bytes.Repeat([]byte{1}, 16)}
+
+		encrypter, err := NewMultiEncrypter(A128GCM, []Recipient{
+			{Algorithm: A128GCMKW, Key: keys[0]},
+			{Algorithm: A128GCMKW, Key: keys[1]},
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		obj, err := encrypter.Encrypt([]byte("hello world"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The key wrap tag travels in the recipient's unprotected header, outside the authenticated data.
+		recipient := &obj.recipients[0]
+
+		tag, err := recipient.header.getTag()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		encryptedKey, shifted := shift(recipient.encryptedKey, tag.bytes())
+		recipient.encryptedKey = encryptedKey
+
+		if err = recipient.header.set(headerTag, newBuffer(shifted)); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, _, _, err = obj.DecryptMulti(keys[0]); err == nil {
+			t.Fatal("unwrapped a key whose tag was lengthened from its encrypted key")
+		}
+	})
+}
+
 func TestDecryptEmptyPlaintext(t *testing.T) {
 	encAlg := A128GCM
 	keyAlg := DIRECT
