@@ -2018,3 +2018,58 @@ func TestJWKRejectsEmptyKeyMaterial(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(`{"kty":"RSA","n":"`+n+`","e":"`+e+`"}`), &jwk))
 	})
 }
+
+func TestJWKMethodsRejectMalformedInMemoryKeys(t *testing.T) {
+	testCases := []struct {
+		name        string
+		key         any
+		publicValid bool
+	}{
+		{"ShouldRejectNilRSAPublicKey", (*rsa.PublicKey)(nil), false},
+		{"ShouldRejectRSAPublicKeyWithoutModulus", &rsa.PublicKey{E: 65537}, false},
+		{"ShouldRejectNilRSAPrivateKey", (*rsa.PrivateKey)(nil), false},
+		{"ShouldRejectRSAPrivateKeyWithoutPrivateExponent", &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, Primes: rsaTestKey.Primes}, true},
+		{"ShouldRejectRSAPrivateKeyWithoutPrime", &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, D: rsaTestKey.D, Primes: []*big.Int{rsaTestKey.Primes[0], nil}}, true},
+		{"ShouldRejectNilECDSAPublicKey", (*ecdsa.PublicKey)(nil), false},
+		{"ShouldRejectNilECDSAPrivateKey", (*ecdsa.PrivateKey)(nil), false},
+		{"ShouldRejectShortEd25519PrivateKey", ed25519.PrivateKey(make([]byte, 10)), false},
+	}
+
+	noPanic := func(t *testing.T, name string, fn func()) {
+		t.Helper()
+
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("%s panicked: %v", name, r)
+			}
+		}()
+
+		fn()
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwk := JSONWebKey{Key: tc.key}
+
+			noPanic(t, "MarshalJSON", func() {
+				if _, err := jwk.MarshalJSON(); err == nil {
+					t.Error("marshaled a malformed key")
+				}
+			})
+
+			noPanic(t, "Valid", func() {
+				if jwk.Valid() {
+					t.Error("reported a malformed key as valid")
+				}
+			})
+
+			noPanic(t, "Public", func() {
+				public := jwk.Public()
+
+				if public.Valid() != tc.publicValid {
+					t.Errorf("public key valid = %t, want %t", public.Valid(), tc.publicValid)
+				}
+			})
+		})
+	}
+}
