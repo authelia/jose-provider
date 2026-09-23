@@ -562,11 +562,19 @@ func (ctx *genericEncrypter) Options() EncrypterOptions {
 // Automatically decompresses plaintext, but returns an error if the decompressed
 // data would be >250kB or >10x the size of the compressed data, whichever is larger.
 func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
-	headers := obj.mergedHeaders(nil)
+	if len(obj.recipients) == 0 {
+		return nil, errors.New("go-jose/go-jose: no recipients")
+	}
 
 	if len(obj.recipients) > 1 {
 		return nil, errors.New("go-jose/go-jose: too many recipients in payload; expecting only one")
 	}
+
+	recipient := obj.recipients[0]
+
+	// The flattened JSON serialization may carry "kid" and "alg" in the recipient's own header, so the key is
+	// selected from every header the recipient is subject to, as DecryptMulti does.
+	recipientHeaders := obj.mergedHeaders(&recipient)
 
 	err := obj.checkNoCritical()
 	if err != nil {
@@ -574,16 +582,16 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 	}
 
 	keys, err := tryJWKS(decryptionKey, Header{
-		KeyID:     headers.getString(headerKeyID),
-		Algorithm: headers.getString(headerAlgorithm),
+		KeyID:     recipientHeaders.getString(headerKeyID),
+		Algorithm: recipientHeaders.getString(headerAlgorithm),
 	}, jwkUseEncryption)
 	if err != nil {
 		return nil, err
 	}
 
-	cipher := getContentCipher(headers.getEncryption())
+	cipher := getContentCipher(recipientHeaders.getEncryption())
 	if cipher == nil {
-		return nil, fmt.Errorf("go-jose/go-jose: unsupported enc value '%s'", string(headers.getEncryption()))
+		return nil, fmt.Errorf("go-jose/go-jose: unsupported enc value '%s'", string(recipientHeaders.getEncryption()))
 	}
 
 	generator := randomKeyGenerator{
@@ -597,9 +605,6 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 	}
 
 	authData := obj.computeAuthData()
-
-	recipient := obj.recipients[0]
-	recipientHeaders := obj.mergedHeaders(&recipient)
 
 	var (
 		plaintext []byte
