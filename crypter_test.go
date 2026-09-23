@@ -722,6 +722,64 @@ func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
 	})
 }
 
+// RFC 7518 Section 4.8.1.1 requires a PBES2 salt input of at least eight octets, and Section 4.8.1.2 recommends a
+// count of at least 1000. Neither was enforced, so a message derived with a one octet salt and a single iteration
+// decrypted, and an encrypter could be configured to produce one.
+func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
+	password := []byte("password")
+
+	testCases := []struct {
+		name string
+		p2c  int
+		p2s  []byte
+	}{
+		{"ShouldRejectShortSalt", 1000, []byte("1234567")},
+		{"ShouldRejectLowCount", 999, []byte("12345678")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name+"WhenEncrypting", func(t *testing.T) {
+			if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: tc.p2c, PBES2Salt: tc.p2s}, nil); err == nil {
+				t.Fatal("created a PBES2 encrypter below the minimum salt or count")
+			}
+		})
+
+		t.Run(tc.name+"WhenDecrypting", func(t *testing.T) {
+			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password}, nil)
+			require.NoError(t, err)
+
+			// Stand in for a sender which applies no minimum.
+			cipher := enc.(*genericEncrypter).recipients[0].keyEncrypter.(*symmetricKeyCipher)
+			cipher.p2c, cipher.p2s = tc.p2c, tc.p2s
+
+			obj, err := enc.Encrypt([]byte("hello"))
+			require.NoError(t, err)
+
+			serialized, err := obj.CompactSerialize()
+			require.NoError(t, err)
+
+			parsed, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
+			require.NoError(t, err)
+
+			if _, err = parsed.Decrypt(password); err == nil {
+				t.Fatal("decrypted a PBES2 message below the minimum salt or count")
+			}
+		})
+	}
+
+	t.Run("ShouldAcceptTheMinimums", func(t *testing.T) {
+		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: 1000, PBES2Salt: []byte("12345678")}, nil)
+		require.NoError(t, err)
+
+		obj, err := enc.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+
+		plaintext, err := obj.Decrypt(password)
+		require.NoError(t, err)
+		require.Equal(t, "hello", string(plaintext))
+	})
+}
+
 func TestEncrypterWithPBES2(t *testing.T) {
 	expected := []byte("Lorem ipsum dolor sit amet")
 	algs := []KeyAlgorithm{

@@ -53,8 +53,15 @@ const (
 	// Default salt size: 128 bits
 	defaultP2SSize = 16
 
+	// RFC 7518 Section 4.8.1.2 recommends a count of at least 1000.
+	minP2C = 1000
+
 	// An unauthenticated attacker can set a high P2C value. Set an upper limit to avoid DoS attacks.
 	maxP2C = 1000000
+
+	// RFC 7518 Section 4.8.1.1 requires a salt input of at least 8 octets.
+	minP2SSize = 8
+
 	// A message can carry many PBES2 recipients, and a JWK Set many keys under one "kid", each costing a
 	// derivation. Bound the total, leaving room for a few recipients at the default count.
 	maxP2CPerMessage = 2 * maxP2C
@@ -69,8 +76,6 @@ func newPBES2Budget() *pbes2Budget {
 	return &budget
 }
 
-// spend charges the derivation decryptKey is about to make, if it is going to make one. A count decryptKey will
-// reject costs nothing, and is left for decryptKey to report.
 func (b *pbes2Budget) spend(decrypter keyDecrypter, headers rawHeader) error {
 	if _, ok := decrypter.(*symmetricKeyCipher); !ok {
 		return nil
@@ -96,41 +101,34 @@ func (b *pbes2Budget) spend(decrypter keyDecrypter, headers rawHeader) error {
 	return nil
 }
 
-// Dummy key cipher for shared symmetric key mode
 type symmetricKeyCipher struct {
 	key []byte // Pre-shared content-encryption key
 	p2c int    // PBES2 Count
 	p2s []byte // PBES2 Salt Input
 }
 
-// Signer/verifier for MAC modes
 type symmetricMac struct {
 	key []byte
 }
 
-// Input/output from an AEAD operation
 type aeadParts struct {
 	iv, ciphertext, tag []byte
 }
 
-// A content cipher based on an AEAD construction
 type aeadContentCipher struct {
 	keyBytes     int
 	authtagBytes int
 	getAead      func(key []byte) (cipher.AEAD, error)
 }
 
-// Random key generator
 type randomKeyGenerator struct {
 	size int
 }
 
-// Static key generator
 type staticKeyGenerator struct {
 	key []byte
 }
 
-// Create a new content cipher based on AES-GCM
 func newAESGCM(keySize int) contentCipher {
 	return &aeadContentCipher{
 		keyBytes:     keySize,
@@ -146,7 +144,6 @@ func newAESGCM(keySize int) contentCipher {
 	}
 }
 
-// Create a new content cipher based on AES-CBC+HMAC
 func newAESCBC(keySize int) contentCipher {
 	return &aeadContentCipher{
 		keyBytes:     keySize * 2,
@@ -157,7 +154,6 @@ func newAESCBC(keySize int) contentCipher {
 	}
 }
 
-// Get an AEAD cipher object for the given content encryption algorithm
 func getContentCipher(alg ContentEncryption) contentCipher {
 	switch alg {
 	case A128GCM:
@@ -177,8 +173,6 @@ func getContentCipher(alg ContentEncryption) contentCipher {
 	}
 }
 
-// getPbkdf2Params returns the key length and hash function used in
-// pbkdf2.Key.
 func getPbkdf2Params(alg KeyAlgorithm) (int, func() hash.Hash) {
 	switch alg {
 	case PBES2_HS256_A128KW:
@@ -192,12 +186,6 @@ func getPbkdf2Params(alg KeyAlgorithm) (int, func() hash.Hash) {
 	}
 }
 
-// symmetricKeySize returns the key length in bytes that a symmetric key management algorithm is defined over, and
-// whether the algorithm fixes one at all. RFC 7518 Section 4.4 and Section 4.7 give each "A*KW" and "A*GCMKW"
-// identifier exactly one length, so the local key has to match the algorithm the message declares. Taking the
-// length from the key instead selects whichever variant happens to fit it, which leaves "alg" describing
-// something other than the operation performed. DIRECT is sized by the content encryption and PBES2 takes a
-// password of any length, so neither fixes one here.
 func symmetricKeySize(alg KeyAlgorithm) (int, bool) {
 	switch alg {
 	case A128KW, A128GCMKW:
@@ -211,7 +199,6 @@ func symmetricKeySize(alg KeyAlgorithm) (int, bool) {
 	}
 }
 
-// checkKeySize rejects a key whose length contradicts the algorithm it is about to be used under.
 func (ctx *symmetricKeyCipher) checkKeySize(alg KeyAlgorithm) error {
 	size, ok := symmetricKeySize(alg)
 	if !ok {
@@ -225,7 +212,6 @@ func (ctx *symmetricKeyCipher) checkKeySize(alg KeyAlgorithm) error {
 	return nil
 }
 
-// getRandomSalt generates a new salt of the given size.
 func getRandomSalt(size int) ([]byte, error) {
 	salt := make([]byte, size)
 	_, err := io.ReadFull(randReader, salt)
@@ -236,7 +222,6 @@ func getRandomSalt(size int) ([]byte, error) {
 	return salt, nil
 }
 
-// newSymmetricRecipient creates a JWE encrypter based on AES-GCM key wrap.
 func newSymmetricRecipient(keyAlg KeyAlgorithm, key []byte) (recipientKeyInfo, error) {
 	switch keyAlg {
 	case DIRECT, A128GCMKW, A192GCMKW, A256GCMKW, A128KW, A192KW, A256KW:
@@ -259,7 +244,6 @@ func newSymmetricRecipient(keyAlg KeyAlgorithm, key []byte) (recipientKeyInfo, e
 	}, nil
 }
 
-// newSymmetricSigner creates a recipientSigInfo based on the given key.
 func newSymmetricSigner(sigAlg SignatureAlgorithm, key []byte) (recipientSigInfo, error) {
 	// Verify that key management algorithm is supported by this encrypter
 	switch sigAlg {
@@ -276,7 +260,6 @@ func newSymmetricSigner(sigAlg SignatureAlgorithm, key []byte) (recipientSigInfo
 	}, nil
 }
 
-// Generate a random key for the given content cipher
 func (ctx randomKeyGenerator) genKey() ([]byte, rawHeader, error) {
 	key := make([]byte, ctx.size)
 	_, err := io.ReadFull(randReader, key)
@@ -287,19 +270,16 @@ func (ctx randomKeyGenerator) genKey() ([]byte, rawHeader, error) {
 	return key, rawHeader{}, nil
 }
 
-// Key size for random generator
 func (ctx randomKeyGenerator) keySize() int {
 	return ctx.size
 }
 
-// Generate a static key (for direct mode)
 func (ctx staticKeyGenerator) genKey() ([]byte, rawHeader, error) {
 	cek := make([]byte, len(ctx.key))
 	copy(cek, ctx.key)
 	return cek, rawHeader{}, nil
 }
 
-// Key size for static generator
 func (ctx staticKeyGenerator) keySize() int {
 	return len(ctx.key)
 }
@@ -309,15 +289,12 @@ func (ctx aeadContentCipher) keySize() int {
 	return ctx.keyBytes
 }
 
-// Encrypt some data
 func (ctx aeadContentCipher) encrypt(key, aad, pt []byte) (*aeadParts, error) {
-	// Get a new AEAD instance
 	aead, err := ctx.getAead(key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Initialize a new nonce
 	iv := make([]byte, aead.NonceSize())
 	_, err = io.ReadFull(randReader, iv)
 	if err != nil {
@@ -334,7 +311,6 @@ func (ctx aeadContentCipher) encrypt(key, aad, pt []byte) (*aeadParts, error) {
 	}, nil
 }
 
-// Decrypt some data
 func (ctx aeadContentCipher) decrypt(key, aad []byte, parts *aeadParts) ([]byte, error) {
 	aead, err := ctx.getAead(key)
 	if err != nil {
@@ -348,7 +324,6 @@ func (ctx aeadContentCipher) decrypt(key, aad []byte, parts *aeadParts) ([]byte,
 	return aead.Open(nil, parts.iv, append(parts.ciphertext, parts.tag...), aad)
 }
 
-// Encrypt the content encryption key.
 func (ctx *symmetricKeyCipher) encryptKey(cek []byte, alg KeyAlgorithm) (recipientInfo, error) {
 	switch alg {
 	case DIRECT:
@@ -409,17 +384,14 @@ func (ctx *symmetricKeyCipher) encryptKey(cek []byte, alg KeyAlgorithm) (recipie
 			p2c = defaultP2C
 		}
 
-		// salt is UTF8(Alg) || 0x00 || Salt Input
 		salt := bytes.Join([][]byte{[]byte(alg), p2s}, []byte{0x00})
 
-		// derive key
 		keyLen, h := getPbkdf2Params(alg)
 		key, err := pbkdf2.Key(h, string(ctx.key), salt, p2c, keyLen)
 		if err != nil {
 			return recipientInfo{}, err
 		}
 
-		// use AES cipher with derived key
 		block, err := aes.NewCipher(key)
 		if err != nil {
 			return recipientInfo{}, err
@@ -449,7 +421,6 @@ func (ctx *symmetricKeyCipher) encryptKey(cek []byte, alg KeyAlgorithm) (recipie
 	return recipientInfo{}, ErrUnsupportedAlgorithm
 }
 
-// Decrypt the content encryption key.
 func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipientInfo, generator keyGenerator) ([]byte, error) {
 	if recipient == nil {
 		return nil, fmt.Errorf("go-jose/go-jose: missing recipient")
@@ -517,33 +488,41 @@ func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipien
 		if err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: %v", err)
 		}
+
 		if p2s == nil || len(p2s.data) == 0 {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: must be present")
+		}
+
+		if len(p2s.data) < minP2SSize {
+			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: must be at least %d octets", minP2SSize)
 		}
 
 		p2c, err := headers.getP2C()
 		if err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: %v", err)
 		}
+
 		if p2c <= 0 {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: must be a positive integer")
 		}
+
+		if p2c < minP2C {
+			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: must be at least %d", minP2C)
+		}
+
 		if p2c > maxP2C {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2C: too high")
 		}
 
-		// salt is UTF8(Alg) || 0x00 || Salt Input
 		alg := headers.getAlgorithm()
 		salt := bytes.Join([][]byte{[]byte(alg), p2s.bytes()}, []byte{0x00})
 
-		// derive key
 		keyLen, h := getPbkdf2Params(alg)
 		key, err := pbkdf2.Key(h, string(ctx.key), salt, p2c, keyLen)
 		if err != nil {
 			return nil, err
 		}
 
-		// use AES cipher with derived key
 		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, err
@@ -559,7 +538,6 @@ func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipien
 	return nil, ErrUnsupportedAlgorithm
 }
 
-// Sign the given payload
 func (ctx symmetricMac) signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error) {
 	mac, err := ctx.hmac(payload, alg)
 	if err != nil {
@@ -572,7 +550,6 @@ func (ctx symmetricMac) signPayload(payload []byte, alg SignatureAlgorithm) (Sig
 	}, nil
 }
 
-// Verify the given payload
 func (ctx symmetricMac) verifyPayload(payload []byte, mac []byte, alg SignatureAlgorithm) error {
 	expected, err := ctx.hmac(payload, alg)
 	if err != nil {
@@ -591,13 +568,9 @@ func (ctx symmetricMac) verifyPayload(payload []byte, mac []byte, alg SignatureA
 	return nil
 }
 
-// Compute the HMAC based on the given alg value
 func (ctx symmetricMac) hmac(payload []byte, alg SignatureAlgorithm) ([]byte, error) {
 	var hash func() hash.Hash
 
-	// https://datatracker.ietf.org/doc/html/rfc7518#section-3.2
-	// A key of the same size as the hash output (for instance, 256 bits for
-	// "HS256") or larger MUST be used
 	switch alg {
 	case HS256:
 		if len(ctx.key)*8 < 256 {
@@ -620,7 +593,6 @@ func (ctx symmetricMac) hmac(payload []byte, alg SignatureAlgorithm) ([]byte, er
 
 	hmac := hmac.New(hash, ctx.key)
 
-	// According to documentation, Write() on hash never fails
 	_, _ = hmac.Write(payload)
 	return hmac.Sum(nil), nil
 }

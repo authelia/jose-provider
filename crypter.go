@@ -168,8 +168,9 @@ func (eo *EncrypterOptions) WithType(typ ContentType) *EncrypterOptions {
 // PBES2Count and PBES2Salt correspond with the  "p2c" and "p2s" headers used
 // on the password-based encryption algorithms PBES2-HS256+A128KW,
 // PBES2-HS384+A192KW, and PBES2-HS512+A256KW. If they are not provided a safe
-// default of 100000 will be used for the count and a 128-bit random salt will
-// be generated. An [OpaqueKeyEncrypter] derives the key itself and cannot apply
+// default of 600000 will be used for the count and a 128-bit random salt will
+// be generated. When provided, the count must be at least 1000 and the salt at
+// least 8 bytes, as RFC 7518 Section 4.8.1 sets out. An [OpaqueKeyEncrypter] derives the key itself and cannot apply
 // either, so supplying them alongside one is an error rather than a request
 // this package can meet.
 type Recipient struct {
@@ -357,6 +358,15 @@ func (ctx *genericEncrypter) addRecipient(recipient Recipient) (err error) {
 			}
 
 			break
+		}
+
+		// Zero values select the defaults; anything else has to meet the minimums a recipient will hold it to.
+		if recipient.PBES2Count != 0 && recipient.PBES2Count < minP2C {
+			return fmt.Errorf("go-jose/go-jose: invalid PBES2Count: must be at least %d", minP2C)
+		}
+
+		if len(recipient.PBES2Salt) != 0 && len(recipient.PBES2Salt) < minP2SSize {
+			return fmt.Errorf("go-jose/go-jose: invalid PBES2Salt: must be at least %d octets", minP2SSize)
 		}
 
 		sr.p2c = recipient.PBES2Count
