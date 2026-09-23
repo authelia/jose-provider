@@ -96,6 +96,12 @@ Expand a compact message to JSON format.
   > jose-util expand --format JWS
   {"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQK","protected":"eyJhbGciOiJFUzM4NCJ9","signature":"QPU35XY913Im7ZEaN2yHykfbtPqjHZvYp-lV8OcTAJZs67bJFSdTSkQhQWE9ch6tvYrj_7py6HKaWVFLll_s_Rm6bmwq3JszsHrIvFFm1NydruYHhvAnx7rjYiqwOu0W"}
 
+Expand a compact message to JSON format in a file.
+
+  $ echo "eyJhbGciOiJFUzM4NCJ9.TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQK.QPU35XY913Im7ZEaN2yHykfbtPqjHZvYp-lV8OcTAJZs67bJFSdTSkQhQWE9ch6tvYrj_7py6HKaWVFLll_s_Rm6bmwq3JszsHrIvFFm1NydruYHhvAnx7rjYiqwOu0W" |
+  > jose-util expand --format JWS --out expanded.json && cat expanded.json
+  {"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQK","protected":"eyJhbGciOiJFUzM4NCJ9","signature":"QPU35XY913Im7ZEaN2yHykfbtPqjHZvYp-lV8OcTAJZs67bJFSdTSkQhQWE9ch6tvYrj_7py6HKaWVFLll_s_Rm6bmwq3JszsHrIvFFm1NydruYHhvAnx7rjYiqwOu0W"}
+
 Generate signing keys in JWK format.
 
   $ jose-util generate-key --use enc --alg RSA-OAEP --kid test && ls jwk-enc-test-*.json
