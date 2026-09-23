@@ -237,6 +237,12 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		return nil, errors.New("go-jose/go-jose: no content encryption algorithms provided")
 	}
 
+	// RFC 7516 Section 7.2.2: "header" and "encrypted_key" belong to the flattened serialization, which has no
+	// "recipients". Accepting both would drop one reading of the recipient in favour of the other.
+	if parsed.Recipients != nil && (parsed.Header != nil || parsed.EncryptedKey != nil) {
+		return nil, errors.New("go-jose/go-jose: JWE carries both recipients and flattened recipient members")
+	}
+
 	obj := &JSONWebEncryption{
 		original:    parsed,
 		unprotected: parsed.Unprotected,

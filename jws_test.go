@@ -164,7 +164,6 @@ func TestFullParseJWS(t *testing.T) {
 	// Messages that should succeed to parse
 	successes := []string{
 		`{
-		  "header":{"alg":"XYZ"},
 		  "payload":"CUJD",
 		  "signatures":[
 			{"protected":"eyJhbGciOiJBQkMifQo","header":{"kid":"XYZ"},"signature":"CUJD"},
@@ -183,6 +182,14 @@ func TestFullParseJWS(t *testing.T) {
 	failures := []string{
 		// Empty
 		"{}",
+		// Flattened member alongside signatures (RFC 7515 Section 7.2.2)
+		`{
+		  "header":{"alg":"XYZ"},
+		  "payload":"CUJD",
+		  "signatures":[
+			{"protected":"eyJhbGciOiJBQkMifQo","header":{"kid":"XYZ"},"signature":"CUJD"},
+			{"protected":"eyJhbGciOiJBQkMifQo","signature":"CUJD"}
+		  ]}`,
 		// Invalid JSON
 		"{XX",
 		// Invalid protected header
@@ -1403,4 +1410,47 @@ func TestSerializeParsedSignatureKeepsProtectedHeader(t *testing.T) {
 			assert.Equal(t, index, i)
 		}
 	})
+}
+
+// RFC 7515 Section 7.2.2 defines the flattened members "protected", "header" and "signature" only for a JWS without a
+// "signatures" array. A general serialization carrying them as well was previously accepted with them silently
+// dropped, so a parser taking the other reading saw a different algorithm, key and signature.
+func TestParseSignedRejectsMixedJSONSerialization(t *testing.T) {
+	signer, err := NewMultiSigner([]SigningKey{
+		{Algorithm: HS256, Key: []byte("0123456789abcdef0123456789abcdef")},
+		{Algorithm: HS256, Key: []byte("fedcba9876543210fedcba9876543210")},
+	}, nil)
+	assert.NoError(t, err)
+
+	obj, err := signer.Sign([]byte("payload"))
+	assert.NoError(t, err)
+
+	general := obj.FullSerialize()
+
+	parse := func(serialized string) error {
+		_, err := ParseSigned(serialized, []SignatureAlgorithm{HS256})
+
+		return err
+	}
+
+	assert.NoError(t, parse(general))
+
+	b64 := base64.RawURLEncoding.EncodeToString
+
+	testCases := []struct {
+		name   string
+		member string
+	}{
+		{"ShouldRejectProtected", `"protected":"` + b64([]byte(`{"alg":"none"}`)) + `"`},
+		{"ShouldRejectHeader", `"header":{"kid":"other"}`},
+		{"ShouldRejectSignature", `"signature":"` + b64(make([]byte, 32)) + `"`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := parse("{" + tc.member + "," + general[1:]); err == nil {
+				t.Fatal("parsed a general serialization carrying a flattened member")
+			}
+		})
+	}
 }
