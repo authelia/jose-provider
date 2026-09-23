@@ -624,12 +624,20 @@ func parseSignedCompact(
 	return raw.sanitized(signatureAlgorithms)
 }
 
+func (sig Signature) serializedProtected() []byte {
+	if sig.original != nil && sig.original.Protected != nil {
+		return sig.original.Protected.bytes()
+	}
+
+	return mustSerializeJSON(sig.protected)
+}
+
 func (obj JSONWebSignature) compactSerialize(detached bool) (string, error) {
 	if len(obj.Signatures) != 1 || obj.Signatures[0].header != nil || obj.Signatures[0].protected == nil {
 		return "", ErrNotSupported
 	}
 
-	serializedProtected := mustSerializeJSON(obj.Signatures[0].protected)
+	serializedProtected := obj.Signatures[0].serializedProtected()
 
 	b64, err := payloadIsBase64(obj.Signatures[0].protected)
 	if err != nil {
@@ -682,8 +690,7 @@ func (obj JSONWebSignature) FullSerialize() string {
 
 	if len(obj.Signatures) == 1 {
 		if obj.Signatures[0].protected != nil {
-			serializedProtected := mustSerializeJSON(obj.Signatures[0].protected)
-			raw.Protected = newBuffer(serializedProtected)
+			raw.Protected = newBuffer(obj.Signatures[0].serializedProtected())
 		}
 		raw.Header = obj.Signatures[0].header
 		raw.Signature = newBuffer(obj.Signatures[0].Signature)
@@ -696,7 +703,7 @@ func (obj JSONWebSignature) FullSerialize() string {
 			}
 
 			if signature.protected != nil {
-				raw.Signatures[i].Protected = newBuffer(mustSerializeJSON(signature.protected))
+				raw.Signatures[i].Protected = newBuffer(signature.serializedProtected())
 			}
 		}
 	}
