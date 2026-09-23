@@ -1208,3 +1208,51 @@ func TestParseEncryptedRejectsMixedJSONSerialization(t *testing.T) {
 		}
 	})
 }
+
+// RFC 7516 Section 4.1.3 requires "zip" to be integrity protected, and Section 5.2 requires a recipient to reject a
+// message whose "zip" it does not understand. A "zip" that was not a string, or that sat in an unprotected header,
+// was previously ignored, so decryption succeeded and returned the still compressed plaintext as though it were the
+// message.
+func TestParseEncryptedRejectsInvalidCompression(t *testing.T) {
+	b64 := base64.RawURLEncoding.EncodeToString
+
+	body := `"iv":"` + b64(make([]byte, 12)) + `","ciphertext":"` + b64([]byte("x")) + `","tag":"` + b64(make([]byte, 16)) + `"`
+
+	compact := func(protected string) string {
+		return b64([]byte(protected)) + ".." + b64(make([]byte, 12)) + "." + b64([]byte("x")) + "." + b64(make([]byte, 16))
+	}
+
+	protected := b64([]byte(`{"alg":"dir","enc":"A128GCM"}`))
+
+	testCases := []struct {
+		name       string
+		serialized string
+		valid      bool
+	}{
+		{"ShouldAcceptProtectedDeflate", compact(`{"alg":"dir","enc":"A128GCM","zip":"DEF"}`), true},
+		{"ShouldRejectProtectedNonString", compact(`{"alg":"dir","enc":"A128GCM","zip":1}`), false},
+		{"ShouldRejectProtectedEmpty", compact(`{"alg":"dir","enc":"A128GCM","zip":""}`), false},
+		{"ShouldRejectProtectedUnknown", compact(`{"alg":"dir","enc":"A128GCM","zip":"XYZ"}`), false},
+		{"ShouldRejectSharedUnprotected", `{"protected":"` + protected + `","unprotected":{"zip":"DEF"},` + body + `}`, false},
+		{"ShouldRejectRecipientHeader", `{"protected":"` + protected + `","header":{"zip":"DEF"},` + body + `}`, false},
+		{"ShouldRejectRecipientsHeader", `{"protected":"` + protected + `","recipients":[{"header":{"zip":"DEF"}}],` + body + `}`, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseEncrypted(tc.serialized, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM})
+
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("failed to parse %s: %v", tc.serialized, err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("parsed a JWE with an invalid zip header: %s", tc.serialized)
+			}
+		})
+	}
+}
