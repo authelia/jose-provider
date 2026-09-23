@@ -209,3 +209,42 @@ func Test_cryptoSigner_Algs(t *testing.T) {
 		})
 	}
 }
+
+// RFC 7518 Section 3.5 requires the PSS salt to be the same size as the hash output. The signer previously asked for
+// the automatic length, which crypto/rsa treats as the largest the key allows when signing, so verifiers which hold
+// to the RFC rejected the signature.
+func TestSignPayloadUsesPSSSaltLengthEqualToHash(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		alg  jose.SignatureAlgorithm
+		hash crypto.Hash
+	}{
+		{jose.PS256, crypto.SHA256},
+		{jose.PS384, crypto.SHA384},
+		{jose.PS512, crypto.SHA512},
+	}
+
+	payload := []byte("payload")
+
+	for _, tc := range testCases {
+		t.Run(string(tc.alg), func(t *testing.T) {
+			signature, err := Opaque(key).SignPayload(payload, tc.alg)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			hasher := tc.hash.New()
+			hasher.Write(payload)
+
+			opts := &rsa.PSSOptions{SaltLength: tc.hash.Size(), Hash: tc.hash}
+
+			if err = rsa.VerifyPSS(&key.PublicKey, tc.hash, hasher.Sum(nil), signature, opts); err != nil {
+				t.Fatalf("signature does not use a salt the size of the hash: %v", err)
+			}
+		})
+	}
+}
