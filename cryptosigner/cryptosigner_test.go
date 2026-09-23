@@ -248,3 +248,39 @@ func TestSignPayloadUsesPSSSaltLengthEqualToHash(t *testing.T) {
 		})
 	}
 }
+
+func TestSignPayloadRejectsAlgorithmTheKeyDoesNotSupport(t *testing.T) {
+	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p256, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		name string
+		key  crypto.Signer
+		alg  jose.SignatureAlgorithm
+	}{
+		{"ShouldRejectES256WithP384", p384, jose.ES256},
+		{"ShouldRejectES512WithP256", p256, jose.ES512},
+		{"ShouldRejectES256WithRSA", rsaKey, jose.ES256},
+		{"ShouldRejectRS256WithECDSA", p256, jose.RS256},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Opaque(tc.key).SignPayload([]byte("payload"), tc.alg); !errors.Is(err, jose.ErrUnsupportedAlgorithm) {
+				t.Fatalf("expected ErrUnsupportedAlgorithm, got %v", err)
+			}
+		})
+	}
+}
