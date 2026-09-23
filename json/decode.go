@@ -895,8 +895,7 @@ func (d *decodeState) convertNumber(s string) (any, error) {
 			return nil, &UnmarshalTypeError{Value: "number " + s, Type: reflect.TypeFor[float64](), Offset: int64(d.off)}
 		}
 
-		// if it has no decimal value use int64
-		if fi, fd := math.Modf(f); fd == 0.0 {
+		if fi, fd := math.Modf(f); fd == 0.0 && fi >= math.MinInt64 && fi < -math.MinInt64 {
 			return int64(fi), nil
 		}
 		return f, nil
