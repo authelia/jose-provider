@@ -34,6 +34,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	josecipher "authelia.com/provider/jose/cipher"
@@ -668,6 +669,57 @@ func TestPBES2JWKEncryption(t *testing.T) {
 	if !bytes.Equal(plaintext, original2) {
 		t.Error("reference decryption does not match plaintext")
 	}
+}
+
+// RFC 7518 Section 4.8.1.1 has the salt vary the key derived from one password. A generated salt was previously
+// kept on the encrypter, so every later message from it reused the first salt, and so the same key encryption key,
+// while concurrent calls raced on it. A salt the caller supplied is theirs to reuse.
+func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
+	p2s := func(t *testing.T, enc Encrypter) string {
+		obj, err := enc.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+
+		salt, err := obj.mergedHeaders(&obj.recipients[0]).getP2S()
+		require.NoError(t, err)
+
+		return string(salt.bytes())
+	}
+
+	t.Run("ShouldGenerateAFreshSaltForEachMessage", func(t *testing.T) {
+		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000}, nil)
+		require.NoError(t, err)
+
+		if first, second := p2s(t, enc), p2s(t, enc); first == second {
+			t.Fatalf("expected a fresh p2s for each message, got %x twice", first)
+		}
+	})
+
+	t.Run("ShouldKeepASuppliedSalt", func(t *testing.T) {
+		salt := []byte("0123456789abcdef")
+
+		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000, PBES2Salt: salt}, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, string(salt), p2s(t, enc))
+		require.Equal(t, string(salt), p2s(t, enc))
+	})
+
+	t.Run("ShouldEncryptConcurrently", func(t *testing.T) {
+		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000}, nil)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+
+		for range 4 {
+			wg.Go(func() {
+				if _, err := enc.Encrypt([]byte("hello")); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+
+		wg.Wait()
+	})
 }
 
 func TestEncrypterWithPBES2(t *testing.T) {
