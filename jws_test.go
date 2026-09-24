@@ -1335,3 +1335,72 @@ func signedJWSForms(t *testing.T, key []byte, header string, b64 bool, payload [
 		},
 	}
 }
+
+// RFC 7515 Section 5.2 verifies the signature over the protected header exactly as it was encoded. A parsed JWS was
+// previously re-serialized with its protected header re-marshaled, which reorders its members, so a token from any
+// issuer that did not happen to emit them in this package's order no longer verified after being passed along.
+func TestSerializeParsedSignatureKeepsProtectedHeader(t *testing.T) {
+	b64 := base64.RawURLEncoding.EncodeToString
+
+	keys := [][]byte{
+		[]byte("0123456789abcdef0123456789abcdef"),
+		[]byte("fedcba9876543210fedcba9876543210"),
+	}
+
+	protected := []string{`{"typ":"JWT","alg":"HS256"}`, `{"kid":"2",  "alg":"HS256"}`}
+	payload := b64([]byte(`{"a":1}`))
+
+	sign := func(i int) (string, string) {
+		mac := hmac.New(sha256.New, keys[i])
+		mac.Write([]byte(b64([]byte(protected[i])) + "." + payload))
+
+		return b64([]byte(protected[i])), b64(mac.Sum(nil))
+	}
+
+	reparse := func(t *testing.T, serialized string) *JSONWebSignature {
+		obj, err := ParseSigned(serialized, []SignatureAlgorithm{HS256})
+		if err != nil {
+			t.Fatalf("failed to reparse %s: %v", serialized, err)
+		}
+
+		return obj
+	}
+
+	t.Run("ShouldKeepCompactSerialization", func(t *testing.T) {
+		header, signature := sign(0)
+		token := header + "." + payload + "." + signature
+
+		serialized, err := reparse(t, token).CompactSerialize()
+		assert.NoError(t, err)
+		assert.Equal(t, serialized, token)
+
+		_, err = reparse(t, serialized).Verify(keys[0])
+		assert.NoError(t, err)
+	})
+
+	t.Run("ShouldKeepFlattenedSerialization", func(t *testing.T) {
+		header, signature := sign(0)
+
+		serialized := reparse(t, header+"."+payload+"."+signature).FullSerialize()
+
+		_, err := reparse(t, serialized).Verify(keys[0])
+		assert.NoError(t, err)
+	})
+
+	t.Run("ShouldKeepGeneralSerialization", func(t *testing.T) {
+		header0, signature0 := sign(0)
+		header1, signature1 := sign(1)
+
+		token := `{"payload":"` + payload + `","signatures":[` +
+			`{"protected":"` + header0 + `","signature":"` + signature0 + `"},` +
+			`{"protected":"` + header1 + `","signature":"` + signature1 + `"}]}`
+
+		serialized := reparse(t, token).FullSerialize()
+
+		for i, key := range keys {
+			index, _, _, err := reparse(t, serialized).VerifyMulti(key)
+			assert.NoError(t, err)
+			assert.Equal(t, index, i)
+		}
+	})
+}
