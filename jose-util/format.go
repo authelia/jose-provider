@@ -55,10 +55,6 @@ func expand(args []string) error {
 	if err != nil {
 		return fmt.Errorf("unable to expand message: %w", err)
 	}
-	err = writeOutput(*outFile, []byte(serialized))
-	if err != nil {
-		return err
-	}
 
-	return writeOutput(*outFile, []byte("\n"))
+	return writeOutput(*outFile, []byte(serialized+"\n"))
 }
