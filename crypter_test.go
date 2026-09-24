@@ -38,6 +38,7 @@ import (
 
 	josecipher "authelia.com/provider/jose/cipher"
 	"authelia.com/provider/jose/json"
+	"authelia.com/provider/jose/testutils/require"
 )
 
 // We generate only a single RSA and EC key for testing, speeds up tests.
@@ -753,6 +754,79 @@ func TestRejectTooHighP2C(t *testing.T) {
 			}
 		}
 	}
+}
+
+// RFC 7518 Section 4.8.1.2 lets the sender choose "p2c", and the per recipient limit above only bounds one
+// derivation. A message was previously free to carry any number of PBES2 recipients, and a JWK Set any number of
+// keys under one "kid", each of which cost a full derivation, so the work of a single decryption was unbounded.
+func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
+	b64 := base64.RawURLEncoding.EncodeToString
+
+	recipient := `{"header":{"alg":"PBES2-HS256+A128KW","p2c":1000000,"p2s":"` + b64(make([]byte, 16)) +
+		`"},"encrypted_key":"` + b64(make([]byte, 24)) + `"}`
+
+	build := func(n int) string {
+		recipients := make([]string, n)
+		for i := range recipients {
+			recipients[i] = recipient
+		}
+
+		return `{"protected":"` + b64([]byte(`{"enc":"A128GCM"}`)) + `","recipients":[` +
+			strings.Join(recipients, ",") + `],"iv":"` + b64(make([]byte, 12)) + `","ciphertext":"` +
+			b64([]byte("x")) + `","tag":"` + b64(make([]byte, 16)) + `"}`
+	}
+
+	t.Run("ShouldRejectManyRecipients", func(t *testing.T) {
+		obj, err := ParseEncrypted(build(5), []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
+		require.NoError(t, err)
+
+		if _, _, _, err = obj.DecryptMulti([]byte("password")); !errors.Is(err, ErrPBES2WorkLimit) {
+			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
+		}
+	})
+
+	t.Run("ShouldRejectManyKeysUnderOneKeyID", func(t *testing.T) {
+		keys := &JSONWebKeySet{}
+		for _, password := range []string{"a", "b", "c", "d", "e"} {
+			keys.Keys = append(keys.Keys, JSONWebKey{KeyID: "k", Key: []byte(password)})
+		}
+
+		protected := `{"alg":"PBES2-HS256+A128KW","enc":"A128GCM","kid":"k","p2c":1000000,"p2s":"` +
+			b64(make([]byte, 16)) + `"}`
+
+		serialized := b64([]byte(protected)) + "." + b64(make([]byte, 24)) + "." + b64(make([]byte, 12)) + "." +
+			b64([]byte("x")) + "." + b64(make([]byte, 16))
+
+		obj, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
+		require.NoError(t, err)
+
+		if _, err = obj.Decrypt(keys); !errors.Is(err, ErrPBES2WorkLimit) {
+			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
+		}
+	})
+
+	t.Run("ShouldDecryptTheLastOfSeveralDefaultRecipients", func(t *testing.T) {
+		passwords := []string{"first", "second", "third"}
+
+		recipients := make([]Recipient, len(passwords))
+		for i, password := range passwords {
+			recipients[i] = Recipient{Algorithm: PBES2_HS256_A128KW, Key: password}
+		}
+
+		enc, err := NewMultiEncrypter(A128GCM, recipients, nil)
+		require.NoError(t, err)
+
+		obj, err := enc.Encrypt([]byte("hello"))
+		require.NoError(t, err)
+
+		parsed, err := ParseEncrypted(obj.FullSerialize(), []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
+		require.NoError(t, err)
+
+		index, _, plaintext, err := parsed.DecryptMulti(passwords[len(passwords)-1])
+		require.NoError(t, err)
+		require.Equal(t, len(passwords)-1, index)
+		require.Equal(t, "hello", string(plaintext))
+	})
 }
 
 func TestDecryptEmptyPlaintext(t *testing.T) {

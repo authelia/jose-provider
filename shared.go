@@ -111,6 +111,11 @@ var (
 	// ErrReservedHeaderParameter indicates extra headers carried a parameter which the signer or encrypter
 	// determines for itself, and which it would therefore have to either ignore or contradict.
 	ErrReservedHeaderParameter = errors.New("go-jose/go-jose: reserved header parameter")
+
+	// ErrPBES2WorkLimit indicates decrypting a JWE would take more PBES2 key derivation than one message is
+	// allowed. The sender chooses "p2c" for every recipient, and each recipient, and each candidate key for it,
+	// costs a derivation, so the total is bounded as well as the count of each recipient.
+	ErrPBES2WorkLimit = errors.New("go-jose/go-jose: PBES2 work limit exceeded")
 )
 
 // Key management algorithms

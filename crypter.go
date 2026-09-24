@@ -608,6 +608,8 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 		errKey    error
 	)
 
+	budget := newPBES2Budget()
+
 	// A JWK Set may hold several keys under one "kid", so each candidate is tried before the message is
 	// rejected. Which candidate failed is not reported: that would disclose how the set was searched.
 	for _, key := range keys {
@@ -621,6 +623,10 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 		}
 
 		usable = true
+
+		if err = budget.spend(decrypter, recipientHeaders); err != nil {
+			return nil, err
+		}
 
 		cek, err := decrypter.decryptKey(recipientHeaders, &recipient, generator)
 		if err != nil {
@@ -710,6 +716,8 @@ func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byt
 	// "kid" and "alg" are written into each recipient's own header, so the key is selected per recipient rather
 	// than once for the message: a multi-recipient JWE carries neither globally. A JWK Set may then hold several
 	// keys under one "kid", so each candidate is tried before the recipient is given up on.
+	budget := newPBES2Budget()
+
 	for i := range obj.recipients {
 		recipient := obj.recipients[i]
 		recipientHeaders := obj.mergedHeaders(&recipient)
@@ -738,6 +746,10 @@ func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byt
 			}
 
 			usable = true
+
+			if err = budget.spend(decrypter, recipientHeaders); err != nil {
+				return -1, Header{}, nil, err
+			}
 
 			cek, err := decrypter.decryptKey(recipientHeaders, &recipient, generator)
 			if err != nil {
