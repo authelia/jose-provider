@@ -932,8 +932,17 @@ func (key rawJSONWebKey) ecPrivateKey() (*ecdsa.PrivateKey, error) {
 		D: key.D.bigInt(),
 	}
 
-	if _, err := priv.ECDH(); err != nil {
+	ecdhKey, err := priv.ECDH()
+	if err != nil {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC key: %w", err)
+	}
+
+	// ECDH validates the point and the scalar separately, never that d is the private key for x and y.
+	point := make([]byte, 0, 1+2*curveSize(curve))
+	point = append(append(append(point, 0x04), key.X.data...), key.Y.data...)
+
+	if !bytes.Equal(ecdhKey.PublicKey().Bytes(), point) {
+		return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
 	}
 
 	return priv, nil

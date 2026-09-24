@@ -1381,6 +1381,49 @@ func TestECRejectsPrivateKeyScalarOutOfRange(t *testing.T) {
 	}
 }
 
+// RFC 7518 Section 6.2.2.1 defines "d" as the private key for the public point in "x" and "y". A "d" belonging to a
+// different key was previously accepted, so the key advertised (and certified by "x5c") one public key while signing
+// with another.
+func TestECRejectsPrivateKeyNotMatchingPublicKey(t *testing.T) {
+	testCases := []struct {
+		name  string
+		curve elliptic.Curve
+		crv   string
+	}{
+		{"ShouldRejectMismatchedP256", elliptic.P256(), "P-256"},
+		{"ShouldRejectMismatchedP384", elliptic.P384(), "P-384"},
+		{"ShouldRejectMismatchedP521", elliptic.P521(), "P-521"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			advertised, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
+			require.NoError(t, err)
+
+			other, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
+			require.NoError(t, err)
+
+			size := curveSize(tc.curve)
+			encode := func(v *big.Int, n int) string {
+				return base64.RawURLEncoding.EncodeToString(v.FillBytes(make([]byte, n)))
+			}
+
+			build := func(d *big.Int) []byte {
+				return []byte(`{"kty":"EC","crv":"` + tc.crv + `","x":"` + encode(advertised.X, size) +
+					`","y":"` + encode(advertised.Y, size) + `","d":"` + encode(d, dSize(tc.curve)) + `"}`)
+			}
+
+			var jwk JSONWebKey
+
+			require.NoError(t, json.Unmarshal(build(advertised.D), &jwk))
+
+			if err = json.Unmarshal(build(other.D), &jwk); err == nil {
+				t.Fatalf("accepted EC private JWK whose d does not match x and y")
+			}
+		})
+	}
+}
+
 // RFC 8037 Section 2 requires the Ed25519 "x" parameter to be the 32 octet public key. Anything else was previously
 // copied into a 32 byte buffer, so a short value was silently zero padded into a different key entirely, and an "x" of
 // a single 0x01 octet became the identity point. See go-jose/go-jose#249.
