@@ -1444,6 +1444,9 @@ func TestParseSignedRejectsMixedJSONSerialization(t *testing.T) {
 		{"ShouldRejectProtected", `"protected":"` + b64([]byte(`{"alg":"none"}`)) + `"`},
 		{"ShouldRejectHeader", `"header":{"kid":"other"}`},
 		{"ShouldRejectSignature", `"signature":"` + b64(make([]byte, 32)) + `"`},
+		{"ShouldRejectNullProtected", `"protected":null`},
+		{"ShouldRejectNullHeader", `"header":null`},
+		{"ShouldRejectNullSignature", `"signature":null`},
 	}
 
 	for _, tc := range testCases {
@@ -1453,4 +1456,17 @@ func TestParseSignedRejectsMixedJSONSerialization(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("ShouldRejectNullSignatures", func(t *testing.T) {
+		flattened, err := NewSigner(SigningKey{Algorithm: HS256, Key: []byte("0123456789abcdef0123456789abcdef")}, nil)
+		assert.NoError(t, err)
+
+		obj, err := flattened.Sign([]byte("payload"))
+		assert.NoError(t, err)
+
+		serialized := obj.FullSerialize()
+
+		assert.NoError(t, parse(serialized))
+		assert.Error(t, parse(`{"signatures":null,`+serialized[1:]))
+	})
 }

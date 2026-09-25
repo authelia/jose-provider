@@ -324,6 +324,15 @@ func ParseSignedJSON(
 		return nil, err
 	}
 
+	// RFC 7515 Section 7.2.2: "protected", "header" and "signature" belong to the flattened serialization, which has
+	// no "signatures". Accepting both would drop one reading of the signature in favour of the other. Presence is
+	// checked on the members themselves, as a null value decodes to the same nil as an absent one.
+	if mixed, err := hasMixedJSONSerialization(input, "signatures", "protected", "header", "signature"); err != nil {
+		return nil, err
+	} else if mixed {
+		return nil, errors.New("go-jose/go-jose: JWS carries both signatures and flattened signature members")
+	}
+
 	return parsed.sanitized(signatureAlgorithms)
 }
 
@@ -362,12 +371,6 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	}
 	if parsed.Payload == nil {
 		return nil, fmt.Errorf("go-jose/go-jose: missing payload in JWS message")
-	}
-
-	// RFC 7515 Section 7.2.2: "protected", "header" and "signature" belong to the flattened serialization, which has
-	// no "signatures". Accepting both would drop one reading of the signature in favour of the other.
-	if parsed.Signatures != nil && (parsed.Protected != nil || parsed.Header != nil || parsed.Signature != nil) {
-		return nil, errors.New("go-jose/go-jose: JWS carries both signatures and flattened signature members")
 	}
 
 	obj := &JSONWebSignature{

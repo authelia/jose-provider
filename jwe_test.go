@@ -1174,6 +1174,8 @@ func TestParseEncryptedRejectsMixedJSONSerialization(t *testing.T) {
 	}{
 		{"ShouldRejectHeader", `"header":{"crit":["x"],"x":1}`},
 		{"ShouldRejectEncryptedKey", `"encrypted_key":"` + base64.RawURLEncoding.EncodeToString(make([]byte, 24)) + `"`},
+		{"ShouldRejectNullHeader", `"header":null`},
+		{"ShouldRejectNullEncryptedKey", `"encrypted_key":null`},
 	}
 
 	for _, tc := range testCases {
@@ -1183,4 +1185,26 @@ func TestParseEncryptedRejectsMixedJSONSerialization(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("ShouldRejectNullRecipients", func(t *testing.T) {
+		flattened, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: keys[0]}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		obj, err := flattened.Encrypt([]byte("hello world"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		serialized := obj.FullSerialize()
+
+		if err = parse(serialized); err != nil {
+			t.Fatalf("failed to parse flattened serialization: %v", err)
+		}
+
+		if err = parse(`{"recipients":null,` + serialized[1:]); err == nil {
+			t.Fatal("parsed a flattened serialization carrying a null recipients member")
+		}
+	})
 }
