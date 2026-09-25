@@ -79,7 +79,8 @@ func (n *NumericDate) UnmarshalJSON(b []byte) error {
 		return ErrNumericDateOutOfRange
 	}
 
-	*n = NumericDate(f)
+	*n = NumericDate(math.Round(f))
+
 	return nil
 }
 
