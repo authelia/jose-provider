@@ -107,6 +107,47 @@ func (obj JSONWebEncryption) checkNoCritical() error {
 	return nil
 }
 
+func (obj JSONWebEncryption) checkCompression() error {
+	unprotected := []*rawHeader{obj.unprotected}
+	for i := range obj.recipients {
+		unprotected = append(unprotected, obj.recipients[i].header)
+	}
+
+	for _, header := range unprotected {
+		if header == nil {
+			continue
+		}
+
+		if _, ok := (*header)[headerCompression]; ok {
+			return errors.New(`go-jose/go-jose: "zip" header parameter must be integrity protected`)
+		}
+	}
+
+	if obj.protected == nil {
+		return nil
+	}
+
+	raw, ok := (*obj.protected)[headerCompression]
+	if !ok {
+		return nil
+	}
+
+	if raw == nil {
+		return errors.New(`go-jose/go-jose: invalid "zip" header parameter`)
+	}
+
+	var zip string
+	if err := json.Unmarshal(*raw, &zip); err != nil {
+		return fmt.Errorf(`go-jose/go-jose: invalid "zip" header parameter: %w`, err)
+	}
+
+	if CompressionAlgorithm(zip) != DEFLATE {
+		return fmt.Errorf(`%w: "zip" header parameter %q`, ErrUnsupportedAlgorithm, zip)
+	}
+
+	return nil
+}
+
 func (obj JSONWebEncryption) publicHeaders(recipient *recipientInfo) rawHeader {
 	out := rawHeader{}
 	out.merge(obj.protected)
@@ -321,6 +362,10 @@ func (parsed *rawJSONWebEncryption) sanitized(
 			return nil, fmt.Errorf("go-jose/go-jose: recipient %d: %s", i, err)
 		}
 
+	}
+
+	if err := obj.checkCompression(); err != nil {
+		return nil, err
 	}
 
 	if obj.protected != nil {
