@@ -29,6 +29,7 @@ import (
 	"encoding/asn1"
 	"io"
 	"math/big"
+	"slices"
 
 	"authelia.com/provider/jose"
 )
@@ -56,6 +57,10 @@ func (s *cryptoSigner) Algs() []jose.SignatureAlgorithm {
 	case ed25519.PublicKey:
 		return []jose.SignatureAlgorithm{jose.Ed25519, jose.EdDSA}
 	case *ecdsa.PublicKey:
+		if key == nil {
+			return nil
+		}
+
 		switch key.Curve {
 		case elliptic.P256():
 			return []jose.SignatureAlgorithm{jose.ES256}
@@ -77,6 +82,10 @@ func (s *cryptoSigner) Algs() []jose.SignatureAlgorithm {
 }
 
 func (s *cryptoSigner) SignPayload(payload []byte, alg jose.SignatureAlgorithm) ([]byte, error) {
+	if !slices.Contains(s.Algs(), alg) {
+		return nil, jose.ErrUnsupportedAlgorithm
+	}
+
 	var hash crypto.Hash
 	switch alg {
 	case jose.EdDSA, jose.Ed25519, jose.ML_DSA_44, jose.ML_DSA_65, jose.ML_DSA_87:
