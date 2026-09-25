@@ -57,6 +57,10 @@ func (s *cryptoSigner) Algs() []jose.SignatureAlgorithm {
 	case ed25519.PublicKey:
 		return []jose.SignatureAlgorithm{jose.Ed25519, jose.EdDSA}
 	case *ecdsa.PublicKey:
+		if key == nil {
+			return nil
+		}
+
 		switch key.Curve {
 		case elliptic.P256():
 			return []jose.SignatureAlgorithm{jose.ES256}

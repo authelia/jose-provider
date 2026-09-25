@@ -149,6 +149,12 @@ func (fakeSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([
 	return nil, errors.New("not a signer")
 }
 
+func TestSignPayloadRejectsTypedNilECDSAKey(t *testing.T) {
+	if _, err := Opaque(nilECDSASigner{}).SignPayload([]byte("payload"), jose.ES256); !errors.Is(err, jose.ErrUnsupportedAlgorithm) {
+		t.Fatalf("SignPayload() error = %v; want %v", err, jose.ErrUnsupportedAlgorithm)
+	}
+}
+
 func Test_cryptoSigner_Algs(t *testing.T) {
 	_, edKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -196,6 +202,7 @@ func Test_cryptoSigner_Algs(t *testing.T) {
 		{"RSA", fields{rsaKey}, []jose.SignatureAlgorithm{jose.RS256, jose.RS384, jose.RS512, jose.PS256, jose.PS384, jose.PS512}},
 		{"fail P-224", fields{p224}, nil},
 		{"fail other", fields{fakeSigner{}}, nil},
+		{"fail typed-nil ecdsa", fields{nilECDSASigner{}}, nil},
 	}
 
 	for _, tt := range tests {
@@ -283,4 +290,14 @@ func TestSignPayloadRejectsAlgorithmTheKeyDoesNotSupport(t *testing.T) {
 			}
 		})
 	}
+}
+
+type nilECDSASigner struct{}
+
+func (nilECDSASigner) Public() crypto.PublicKey {
+	return (*ecdsa.PublicKey)(nil)
+}
+
+func (nilECDSASigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return nil, errors.New("nilECDSASigner: Sign unexpectedly called")
 }
