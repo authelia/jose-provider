@@ -1176,7 +1176,8 @@ func TestJWKIsPublic(t *testing.T) {
 func TestJWKValid(t *testing.T) {
 	bigInt := big.NewInt(0)
 	eccPub := ecdsa.PublicKey{Curve: elliptic.P256(), X: bigInt, Y: bigInt}
-	rsaPub := rsa.PublicKey{N: bigInt, E: 1}
+	rsaPubZero := rsa.PublicKey{N: bigInt, E: 1}
+	rsaPub := rsa.PublicKey{N: big.NewInt(1), E: 1}
 	edPubEmpty := ed25519.PublicKey([]byte{})
 	edPrivEmpty := ed25519.PublicKey([]byte{})
 
@@ -1191,8 +1192,14 @@ func TestJWKValid(t *testing.T) {
 		{&ecdsa.PrivateKey{PublicKey: eccPub, D: bigInt}, true},
 		{&rsa.PublicKey{}, false},
 		{&rsaPub, true},
+		{&rsaPubZero, false},
+		{&rsa.PublicKey{N: big.NewInt(-1), E: 1}, false},
+		{&rsa.PublicKey{N: big.NewInt(1), E: -1}, false},
 		{&rsa.PrivateKey{}, false},
 		{&rsa.PrivateKey{PublicKey: rsaPub, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, true},
+		{&rsa.PrivateKey{PublicKey: rsaPubZero, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
+		{&rsa.PrivateKey{PublicKey: rsa.PublicKey{N: big.NewInt(-1), E: 1}, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
+		{&rsa.PrivateKey{PublicKey: rsa.PublicKey{N: big.NewInt(1), E: -1}, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
 		{ed25519PublicKey, true},
 		{ed25519PrivateKey, true},
 		{edPubEmpty, false},
@@ -1218,6 +1225,20 @@ func TestJWKValid(t *testing.T) {
 	}
 }
 
+func TestJWKPublicTypedNil(t *testing.T) {
+	for _, key := range []any{(*ecdsa.PublicKey)(nil), (*rsa.PublicKey)(nil), (*ecdsa.PrivateKey)(nil), (*rsa.PrivateKey)(nil)} {
+		k := &JSONWebKey{Key: key, KeyID: "kid"}
+		if p := k.Public(); !reflect.DeepEqual(p, JSONWebKey{}) {
+			t.Errorf("expected an empty key from Public for %T, got %+v", key, p)
+		}
+	}
+
+	k := &JSONWebKey{Key: &ecTestKey256.PublicKey, KeyID: "kid"}
+	if p := k.Public(); !reflect.DeepEqual(p, *k) {
+		t.Errorf("expected Public to return a public key unchanged, got %+v", p)
+	}
+}
+
 func TestJWKBufferSizeCheck(t *testing.T) {
 	key := `{
 		"kty":"EC",
@@ -1225,12 +1246,12 @@ func TestJWKBufferSizeCheck(t *testing.T) {
 		"x":"m9GSmJ5iGmAYlMlaOJGSFN_CjN9cIn8GGYExP-C0FBiIXlWTNvGN38R9WdrHcppfsKF0FXMOMyutpHIRaiMxYSA",
 		"y":"ZaPcRZ3q_7T3h-Gwz2i-T2JjJXfj6YVGgKHcFz5zqmg"}`
 	var jwk JSONWebKey
+
 	if err := jwk.UnmarshalJSON([]byte(key)); err == nil {
 		t.Fatal("key should be invalid")
 	}
+
 	jwk.Valid() // true
-	// panic: go-jose/go-jose: invalid call to newFixedSizeBuffer (len(data) > length)
-	// github.com/go-jose/go-jose.newFixedSizeBuffer(0xc420014557, 0x41, 0x41, 0x20, 0x0)
 	jwk.Thumbprint(crypto.SHA256)
 }
 

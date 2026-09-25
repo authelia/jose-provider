@@ -572,6 +572,16 @@ func (k *JSONWebKey) IsPublic() bool {
 
 // Public creates JSONWebKey with corresponding public key if JWK represents asymmetric private key.
 func (k *JSONWebKey) Public() JSONWebKey {
+	switch key := k.Key.(type) {
+	case *ecdsa.PublicKey:
+		if key == nil {
+			return JSONWebKey{}
+		}
+	case *rsa.PublicKey:
+		if key == nil {
+			return JSONWebKey{}
+		}
+	}
 	if k.IsPublic() {
 		return *k
 	}
@@ -617,11 +627,11 @@ func (k *JSONWebKey) Valid() bool {
 			return false
 		}
 	case *rsa.PublicKey:
-		if key == nil || key.N == nil || key.E == 0 {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 {
 			return false
 		}
 	case *rsa.PrivateKey:
-		if key == nil || key.N == nil || key.E == 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
 			return false
 		}
 	case ed25519.PublicKey:
