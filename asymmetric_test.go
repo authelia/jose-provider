@@ -808,3 +808,61 @@ func TestRSA1_5DecryptsWithModulusNotAMultipleOfEightBits(t *testing.T) {
 		t.Fatalf("decrypted %q, want %q", plaintext, "hello world")
 	}
 }
+
+// An ecdsa key without a curve does not match any algorithm, and was already rejected for that. Building the error
+// dereferenced the missing curve to describe it, so signing or verifying with such a key panicked instead.
+func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
+	t.Run("ShouldNotPanicWhenSigning", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: &ecdsa.PrivateKey{}}, nil)
+		if err != nil {
+			return
+		}
+
+		if _, err = signer.Sign([]byte("payload")); err == nil {
+			t.Fatal("signed with an ecdsa key without a curve")
+		}
+	})
+
+	t.Run("ShouldNotPanicWhenVerifying", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: ecTestKey256}, nil)
+		require.NoError(t, err)
+
+		obj, err := signer.Sign([]byte("payload"))
+		require.NoError(t, err)
+
+		if _, err = obj.Verify(&ecdsa.PublicKey{}); err == nil {
+			t.Fatal("verified with an ecdsa key without a curve")
+		}
+	})
+
+	t.Run("ShouldNotPanicWhenSigningWithTypedNilCurve", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: (*elliptic.CurveParams)(nil)}}}, nil)
+		if err != nil {
+			return
+		}
+
+		if _, err = signer.Sign([]byte("payload")); err == nil {
+			t.Fatal("signed with an ecdsa key with a typed nil curve")
+		}
+	})
+
+	t.Run("ShouldNotPanicWhenVerifyingWithTypedNilCurve", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: ecTestKey256}, nil)
+		require.NoError(t, err)
+
+		obj, err := signer.Sign([]byte("payload"))
+		require.NoError(t, err)
+
+		if _, err = obj.Verify(&ecdsa.PublicKey{Curve: (*elliptic.CurveParams)(nil)}); err == nil {
+			t.Fatal("verified with an ecdsa key with a typed nil curve")
+		}
+	})
+}
+
+// A curve interface holding a typed nil *elliptic.CurveParams is not nil, but its Params() is, so the bit size is
+// reported as zero rather than dereferencing it.
+func TestCurveBitSize(t *testing.T) {
+	assert.Equal(t, 0, curveBitSize(nil))
+	assert.Equal(t, 0, curveBitSize((*elliptic.CurveParams)(nil)))
+	assert.Equal(t, 256, curveBitSize(elliptic.P256()))
+}
