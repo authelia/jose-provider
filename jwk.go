@@ -639,8 +639,14 @@ func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, e is out of range: %w", err)
 	}
 
+	// An empty or zero "n" or "e" is no key at all, and would marshal back out without the member.
+	n := key.N.bigInt()
+	if n.Sign() <= 0 || e <= 0 {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, n and e must be positive")
+	}
+
 	return &rsa.PublicKey{
-		N: key.N.bigInt(),
+		N: n,
 		E: e,
 	}, nil
 }
@@ -991,7 +997,8 @@ func fromSymmetricKey(key []byte) (*rawJSONWebKey, error) {
 }
 
 func (key rawJSONWebKey) symmetricKey() ([]byte, error) {
-	if key.K == nil {
+	// An empty "k" is no key at all, and would marshal back out without the member.
+	if key.K == nil || len(key.K.bytes()) == 0 {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid OCT (symmetric) key, missing k value")
 	}
 	return key.K.bytes(), nil

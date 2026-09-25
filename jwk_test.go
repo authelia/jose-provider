@@ -1979,3 +1979,42 @@ func TestRSARejectsPartialCRTParameters(t *testing.T) {
 		})
 	}
 }
+
+// RFC 7518 Sections 6.3.1 and 6.4.1 define "n", "e" and "k" as the key itself, so an empty value is no key at all.
+// One was previously accepted as a key with no material, which marshaled without the member and so could not be
+// read back, and survived JWK Set filtering to fail only when first used.
+func TestJWKRejectsEmptyKeyMaterial(t *testing.T) {
+	b64 := base64.RawURLEncoding.EncodeToString
+
+	n := b64(rsaTestKey.N.Bytes())
+	e := b64(big.NewInt(int64(rsaTestKey.E)).Bytes())
+
+	testCases := []struct {
+		name string
+		raw  string
+	}{
+		{"ShouldRejectEmptyK", `{"kty":"oct","k":""}`},
+		{"ShouldRejectEmptyNAndE", `{"kty":"RSA","n":"","e":""}`},
+		{"ShouldRejectEmptyN", `{"kty":"RSA","n":"","e":"` + e + `"}`},
+		{"ShouldRejectEmptyE", `{"kty":"RSA","n":"` + n + `","e":""}`},
+		{"ShouldRejectZeroN", `{"kty":"RSA","n":"AA","e":"` + e + `"}`},
+		{"ShouldRejectZeroE", `{"kty":"RSA","n":"` + n + `","e":"AA"}`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var jwk JSONWebKey
+
+			if err := json.Unmarshal([]byte(tc.raw), &jwk); err == nil {
+				t.Fatalf("accepted JWK without key material %s", tc.raw)
+			}
+		})
+	}
+
+	t.Run("ShouldAcceptPopulatedKeys", func(t *testing.T) {
+		var jwk JSONWebKey
+
+		require.NoError(t, json.Unmarshal([]byte(`{"kty":"oct","k":"`+b64([]byte("key"))+`"}`), &jwk))
+		require.NoError(t, json.Unmarshal([]byte(`{"kty":"RSA","n":"`+n+`","e":"`+e+`"}`), &jwk))
+	})
+}
