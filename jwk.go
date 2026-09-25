@@ -33,6 +33,7 @@ import (
 	"math/big"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 
 	"authelia.com/provider/jose/json"
@@ -116,7 +117,7 @@ func (k JSONWebKey) MarshalJSON() ([]byte, error) {
 	case *ecdsa.PublicKey:
 		raw, err = fromEcPublicKey(key)
 	case *rsa.PublicKey:
-		raw = fromRsaPublicKey(key)
+		raw, err = fromRsaPublicKey(key)
 	case ed25519.PrivateKey:
 		raw, err = fromEdPrivateKey(key)
 	case *ecdsa.PrivateKey:
@@ -571,16 +572,35 @@ func (k *JSONWebKey) IsPublic() bool {
 
 // Public creates JSONWebKey with corresponding public key if JWK represents asymmetric private key.
 func (k *JSONWebKey) Public() JSONWebKey {
+	switch key := k.Key.(type) {
+	case *ecdsa.PublicKey:
+		if key == nil {
+			return JSONWebKey{}
+		}
+	case *rsa.PublicKey:
+		if key == nil {
+			return JSONWebKey{}
+		}
+	}
 	if k.IsPublic() {
 		return *k
 	}
 	ret := *k
 	switch key := k.Key.(type) {
 	case *ecdsa.PrivateKey:
+		if key == nil {
+			return JSONWebKey{} // returning invalid key
+		}
 		ret.Key = key.Public()
 	case *rsa.PrivateKey:
+		if key == nil {
+			return JSONWebKey{} // returning invalid key
+		}
 		ret.Key = key.Public()
 	case ed25519.PrivateKey:
+		if len(key) != ed25519.PrivateKeySize {
+			return JSONWebKey{} // returning invalid key
+		}
 		ret.Key = key.Public()
 	default:
 		pub, ok := mldsaPublicOf(k.Key)
@@ -599,19 +619,19 @@ func (k *JSONWebKey) Valid() bool {
 	}
 	switch key := k.Key.(type) {
 	case *ecdsa.PublicKey:
-		if key.Curve == nil || key.X == nil || key.Y == nil {
+		if key == nil || key.Curve == nil || key.X == nil || key.Y == nil {
 			return false
 		}
 	case *ecdsa.PrivateKey:
-		if key.Curve == nil || key.X == nil || key.Y == nil || key.D == nil {
+		if key == nil || key.Curve == nil || key.X == nil || key.Y == nil || key.D == nil {
 			return false
 		}
 	case *rsa.PublicKey:
-		if key.N == nil || key.E == 0 {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 {
 			return false
 		}
 	case *rsa.PrivateKey:
-		if key.N == nil || key.E == 0 || key.D == nil || len(key.Primes) < 2 {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
 			return false
 		}
 	case ed25519.PublicKey:
@@ -663,12 +683,16 @@ func fromEdPublicKey(pub ed25519.PublicKey) (*rawJSONWebKey, error) {
 	}, nil
 }
 
-func fromRsaPublicKey(pub *rsa.PublicKey) *rawJSONWebKey {
+func fromRsaPublicKey(pub *rsa.PublicKey) (*rawJSONWebKey, error) {
+	if pub == nil || pub.N == nil || pub.N.Sign() <= 0 || pub.E <= 0 {
+		return nil, errors.New("go-jose/go-jose: invalid RSA key (nil, or n/e missing)")
+	}
+
 	return &rawJSONWebKey{
 		Kty: "RSA",
 		N:   newBuffer(pub.N.Bytes()),
 		E:   newBufferFromInt(uint64(pub.E)),
-	}
+	}, nil
 }
 
 func (key rawJSONWebKey) ecPublicKey() (*ecdsa.PublicKey, error) {
@@ -861,11 +885,22 @@ func fromEdPrivateKey(ed ed25519.PrivateKey) (*rawJSONWebKey, error) {
 }
 
 func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
+	if rsa == nil {
+		return nil, errors.New("go-jose/go-jose: invalid RSA private key (nil)")
+	}
+
 	if len(rsa.Primes) != 2 {
 		return nil, ErrUnsupportedKeyType
 	}
 
-	raw := fromRsaPublicKey(&rsa.PublicKey)
+	if rsa.D == nil || rsa.Primes[0] == nil || rsa.Primes[1] == nil {
+		return nil, errors.New("go-jose/go-jose: invalid RSA private key (d or a prime missing)")
+	}
+
+	raw, err := fromRsaPublicKey(&rsa.PublicKey)
+	if err != nil {
+		return nil, err
+	}
 
 	raw.D = newBuffer(rsa.D.Bytes())
 	raw.P = newBuffer(rsa.Primes[0].Bytes())
@@ -957,6 +992,10 @@ func (key rawJSONWebKey) ecPrivateKey() (*ecdsa.PrivateKey, error) {
 }
 
 func fromEcPrivateKey(ec *ecdsa.PrivateKey) (*rawJSONWebKey, error) {
+	if ec == nil {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key (nil)")
+	}
+
 	raw, err := fromEcPublicKey(&ec.PublicKey)
 	if err != nil {
 		return nil, err
