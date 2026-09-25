@@ -805,6 +805,12 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA private key, missing %s value(s)", strings.Join(missing, ", "))
 	}
 
+	// RFC 7518 Section 6.3.2: the CRT parameters come as a set or not at all. crypto/rsa only checks them as a
+	// complete set, so a partial one would otherwise be kept unchecked and written back out as given.
+	if (key.Dp == nil) != (key.Dq == nil) || (key.Dp == nil) != (key.Qi == nil) {
+		return nil, errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
+	}
+
 	e, err := key.E.toInt()
 	if err != nil {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA private key, e is out of range: %w", err)
@@ -824,11 +830,7 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 
 	if key.Dp != nil {
 		rv.Precomputed.Dp = key.Dp.bigInt()
-	}
-	if key.Dq != nil {
 		rv.Precomputed.Dq = key.Dq.bigInt()
-	}
-	if key.Qi != nil {
 		rv.Precomputed.Qinv = key.Qi.bigInt()
 	}
 

@@ -1922,3 +1922,60 @@ func TestParseCertificateChainIsBounded(t *testing.T) {
 		t.Error("a JWK with an unbounded x5c chain was accepted")
 	}
 }
+
+// RFC 7518 Section 6.3.2 requires that if any of the RSA private key parameters beyond "d" is present, all of them
+// are. A key carrying only some of "dp", "dq" and "qi" was previously accepted without the ones it had being checked,
+// since crypto/rsa only validates them as a complete set, and they were then written back out as given.
+func TestRSARejectsPartialCRTParameters(t *testing.T) {
+	full, err := json.Marshal(JSONWebKey{Key: rsaTestKey})
+	require.NoError(t, err)
+
+	var members map[string]any
+	require.NoError(t, json.Unmarshal(full, &members))
+
+	testCases := []struct {
+		name    string
+		present []string
+		valid   bool
+	}{
+		{"ShouldAcceptAll", []string{"dp", "dq", "qi"}, true},
+		{"ShouldAcceptNone", nil, true},
+		{"ShouldRejectOnlyDp", []string{"dp"}, false},
+		{"ShouldRejectOnlyQi", []string{"qi"}, false},
+		{"ShouldRejectMissingQi", []string{"dp", "dq"}, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := map[string]any{}
+			for k, v := range members {
+				key[k] = v
+			}
+
+			for _, k := range []string{"dp", "dq", "qi"} {
+				delete(key, k)
+			}
+
+			for _, k := range tc.present {
+				key[k] = members[k]
+			}
+
+			raw, err := json.Marshal(key)
+			require.NoError(t, err)
+
+			var jwk JSONWebKey
+
+			err = json.Unmarshal(raw, &jwk)
+
+			if tc.valid {
+				require.NoError(t, err)
+
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("accepted RSA private JWK carrying only %v of dp, dq and qi", tc.present)
+			}
+		})
+	}
+}
