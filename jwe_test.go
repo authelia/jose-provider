@@ -814,8 +814,8 @@ func TestJWEWithNullAlg(t *testing.T) {
 func TestEmptyEncryptedKey(t *testing.T) {
 	// These inputs use key wrapping with an empty wrapped key.
 	// All fields except the unprotected header are empty; in particular "JWE Encrypted Key" is empty.
-	serializedCompact := `eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJjdHkiOiJhcHBsaWNhdGlvbi9qd2sranNvbiIsImVuYyI6IkEyNTZHQ00iLCJwMmMiOjIxMDAwMCwicDJzIjoiY000YyJ9....`
-	serializedJSON := `{"unprotected":{"alg":"PBES2-HS512+A256KW","cty":"application/jwk+json","enc":"A256GCM","p2c":210000,"p2s":"cM4c"}}`
+	serializedCompact := `eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJjdHkiOiJhcHBsaWNhdGlvbi9qd2sranNvbiIsImVuYyI6IkEyNTZHQ00iLCJwMmMiOjIxMDAwMCwicDJzIjoiY000Y20yV2Y3Vy1MblhocVYwbkxtQSJ9....`
+	serializedJSON := `{"unprotected":{"alg":"PBES2-HS512+A256KW","cty":"application/jwk+json","enc":"A256GCM","p2c":210000,"p2s":"cM4cm2Wf7W-LnXhqV0nLmA"}}`
 	acceptedAlgs := []KeyAlgorithm{PBES2_HS512_A256KW}
 	acceptedContentAlgs := []ContentEncryption{A256GCM}
 	item, err := ParseEncrypted(serializedCompact, acceptedAlgs, acceptedContentAlgs)
