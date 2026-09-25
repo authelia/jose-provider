@@ -617,7 +617,12 @@ func curveBitSize(curve elliptic.Curve) int {
 		return 0
 	}
 
-	return curve.Params().BitSize
+	params := curve.Params()
+	if params == nil {
+		return 0
+	}
+
+	return params.BitSize
 }
 
 func (ctx ecDecrypterSigner) signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error) {
