@@ -948,6 +948,51 @@ func TestDecryptRejectsTagOfWrongLength(t *testing.T) {
 	})
 }
 
+// RFC 7516 Section 5.2 requires the JWE Encrypted Key to be empty when direct encryption or direct key agreement is
+// used. The key was previously never looked at for "dir" or "ECDH-ES", and it is not covered by the authenticated
+// data, so any bytes could be put there and a different string decrypted to the same message.
+func TestDecryptRejectsEncryptedKeyForDirectAlgorithms(t *testing.T) {
+	testCases := []struct {
+		name       string
+		alg        KeyAlgorithm
+		encryptKey any
+		decryptKey any
+	}{
+		{"ShouldRejectDirect", DIRECT, make([]byte, 16), make([]byte, 16)},
+		{"ShouldRejectECDHES", ECDH_ES, &ecTestKey256.PublicKey, ecTestKey256},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: tc.alg, Key: tc.encryptKey}, nil)
+			require.NoError(t, err)
+
+			obj, err := encrypter.Encrypt([]byte("hello world"))
+			require.NoError(t, err)
+
+			token, err := obj.CompactSerialize()
+			require.NoError(t, err)
+
+			parse := func(token string) *JSONWebEncryption {
+				parsed, err := ParseEncrypted(token, []KeyAlgorithm{tc.alg}, []ContentEncryption{A128GCM})
+				require.NoError(t, err)
+
+				return parsed
+			}
+
+			_, err = parse(token).Decrypt(tc.decryptKey)
+			require.NoError(t, err)
+
+			segments := strings.Split(token, ".")
+			segments[1] = base64.RawURLEncoding.EncodeToString([]byte("garbage"))
+
+			if _, err = parse(strings.Join(segments, ".")).Decrypt(tc.decryptKey); err == nil {
+				t.Fatal("decrypted a message carrying an encrypted key its algorithm does not use")
+			}
+		})
+	}
+}
+
 func TestDecryptEmptyPlaintext(t *testing.T) {
 	encAlg := A128GCM
 	keyAlg := DIRECT
