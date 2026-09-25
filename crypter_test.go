@@ -993,6 +993,43 @@ func TestDecryptRejectsEncryptedKeyForDirectAlgorithms(t *testing.T) {
 	}
 }
 
+// RFC 7516 Section 7.2.2 lets the flattened JSON serialization carry "kid" and "alg" in the recipient's "header"
+// member. Decrypt previously selected a key from a JWK Set using the protected and shared headers alone, so a message
+// naming its key there was reported as having no matching key, while DecryptMulti decrypted the same message.
+func TestDecryptSelectsKeyFromRecipientHeader(t *testing.T) {
+	expected := []byte("Lorem ipsum dolor sit amet")
+
+	body := newAESGCM(16)
+	cek := mustRandomBytes(t, body.keySize())
+
+	protected := base64.RawURLEncoding.EncodeToString([]byte(`{"enc":"A128GCM"}`))
+
+	parts, err := body.encrypt(cek, []byte(protected), expected)
+	require.NoError(t, err)
+
+	serialized := fmt.Sprintf(
+		`{"protected":%q,"header":{"alg":"RSA-OAEP","kid":"k1"},"encrypted_key":%q,"iv":%q,"ciphertext":%q,"tag":%q}`,
+		protected,
+		base64.RawURLEncoding.EncodeToString(mustWrapKey(t, cek)),
+		base64.RawURLEncoding.EncodeToString(parts.iv),
+		base64.RawURLEncoding.EncodeToString(parts.ciphertext),
+		base64.RawURLEncoding.EncodeToString(parts.tag),
+	)
+
+	object, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
+	require.NoError(t, err)
+
+	keys := &JSONWebKeySet{Keys: []JSONWebKey{{KeyID: "k1", Key: rsaTestKey}}}
+
+	plaintext, err := object.Decrypt(keys)
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(plaintext))
+
+	_, _, plaintext, err = object.DecryptMulti(keys)
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(plaintext))
+}
+
 func TestDecryptEmptyPlaintext(t *testing.T) {
 	encAlg := A128GCM
 	keyAlg := DIRECT
