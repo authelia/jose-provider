@@ -240,7 +240,7 @@ func TestRejectUnprotectedJWENonce(t *testing.T) {
 
 	// Full JSON
 	input = `{
-		"header":  { "alg": "XYZ", "enc": "XYZ" },
+		"unprotected":  { "alg": "XYZ", "enc": "XYZ" },
 		"aad": "QUJD",
 		"iv": "QUJD",
 		"ciphertext": "QUJD",
@@ -1135,4 +1135,76 @@ func TestEncryptRejectsHeadersCollidingWithRecipients(t *testing.T) {
 	if _, _, plaintext, err := parsed.DecryptMulti(first); err != nil || string(plaintext) != "plaintext" {
 		t.Errorf("DecryptMulti = %q, %v", plaintext, err)
 	}
+}
+
+// RFC 7516 Section 7.2.2 defines the flattened members "header" and "encrypted_key" only for a JWE without a
+// "recipients" array. A general serialization carrying them as well was previously accepted with them silently
+// dropped, so a parser taking the other reading saw a different recipient, and a "crit" there was never checked.
+func TestParseEncryptedRejectsMixedJSONSerialization(t *testing.T) {
+	keys := [][]byte{make([]byte, 16), bytes.Repeat([]byte{1}, 16)}
+
+	encrypter, err := NewMultiEncrypter(A128GCM, []Recipient{
+		{Algorithm: A128KW, Key: keys[0]},
+		{Algorithm: A128KW, Key: keys[1]},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := encrypter.Encrypt([]byte("hello world"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	general := obj.FullSerialize()
+
+	parse := func(serialized string) error {
+		_, err := ParseEncrypted(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
+
+		return err
+	}
+
+	if err = parse(general); err != nil {
+		t.Fatalf("failed to parse general serialization: %v", err)
+	}
+
+	testCases := []struct {
+		name   string
+		member string
+	}{
+		{"ShouldRejectHeader", `"header":{"crit":["x"],"x":1}`},
+		{"ShouldRejectEncryptedKey", `"encrypted_key":"` + base64.RawURLEncoding.EncodeToString(make([]byte, 24)) + `"`},
+		{"ShouldRejectNullHeader", `"header":null`},
+		{"ShouldRejectNullEncryptedKey", `"encrypted_key":null`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := parse("{" + tc.member + "," + general[1:]); err == nil {
+				t.Fatal("parsed a general serialization carrying a flattened member")
+			}
+		})
+	}
+
+	t.Run("ShouldRejectNullRecipients", func(t *testing.T) {
+		flattened, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: keys[0]}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		obj, err := flattened.Encrypt([]byte("hello world"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		serialized := obj.FullSerialize()
+
+		if err = parse(serialized); err != nil {
+			t.Fatalf("failed to parse flattened serialization: %v", err)
+		}
+
+		if err = parse(`{"recipients":null,` + serialized[1:]); err == nil {
+			t.Fatal("parsed a flattened serialization carrying a null recipients member")
+		}
+	})
 }

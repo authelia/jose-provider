@@ -222,6 +222,15 @@ func ParseEncryptedJSON(
 		return nil, err
 	}
 
+	// RFC 7516 Section 7.2.2: "header" and "encrypted_key" belong to the flattened serialization, which has no
+	// "recipients". Accepting both would drop one reading of the recipient in favour of the other. Presence is checked
+	// on the members themselves, as a null value decodes to the same nil as an absent one.
+	if mixed, err := hasMixedJSONSerialization(input, "recipients", "header", "encrypted_key"); err != nil {
+		return nil, err
+	} else if mixed {
+		return nil, errors.New("go-jose/go-jose: JWE carries both recipients and flattened recipient members")
+	}
+
 	return parsed.sanitized(keyEncryptionAlgorithms, contentEncryption)
 }
 

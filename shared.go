@@ -664,3 +664,24 @@ func makeRawMessage(b []byte) *json.RawMessage {
 	rm := json.RawMessage(b)
 	return &rm
 }
+
+// hasMixedJSONSerialization reports whether the JSON object in input has the general serialization member named by
+// general alongside any of the flattened serialization members, whatever their values, including null.
+func hasMixedJSONSerialization(input string, general string, flattened ...string) (bool, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &members); err != nil {
+		return false, err
+	}
+
+	if _, ok := members[general]; !ok {
+		return false, nil
+	}
+
+	for _, member := range flattened {
+		if _, ok := members[member]; ok {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
