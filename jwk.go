@@ -1101,9 +1101,17 @@ var jwkKeyOpsUse = map[string]string{
 }
 
 func checkKeyOps(use string, keyOps []string) error {
+	if keyOps != nil && len(keyOps) == 0 {
+		return errors.New("go-jose/go-jose: invalid JWK, key_ops must list at least one operation")
+	}
+
 	seen := make(map[string]struct{}, len(keyOps))
 
 	for _, op := range keyOps {
+		if op == "" {
+			return errors.New("go-jose/go-jose: invalid JWK, key_ops values must be non-empty strings")
+		}
+
 		if _, ok := seen[op]; ok {
 			return fmt.Errorf("go-jose/go-jose: invalid JWK, duplicate key_ops value %q", op)
 		}

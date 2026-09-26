@@ -913,6 +913,9 @@ func TestJWKKeyOps(t *testing.T) {
 		{"SigningKeyForEncryption", "sig", []any{"encrypt"}, false},
 		{"EncryptionKeyForSigning", "enc", []any{"sign"}, false},
 		{"Duplicate", "", []any{"verify", "verify"}, false},
+		{"Empty", "", []any{}, false},
+		{"NullValue", "", []any{"verify", nil}, false},
+		{"EmptyValue", "", []any{""}, false},
 	}
 
 	for _, tc := range testCases {
@@ -938,7 +941,7 @@ func TestJWKKeyOps(t *testing.T) {
 
 				keyOps := make([]string, len(tc.keyOps))
 				for i, op := range tc.keyOps {
-					keyOps[i] = op.(string)
+					keyOps[i], _ = op.(string)
 				}
 
 				if _, err = (JSONWebKey{Key: &ecTestKey256.PublicKey, Use: tc.use, KeyOps: keyOps}).MarshalJSON(); err == nil {
