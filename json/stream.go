@@ -78,7 +78,9 @@ func (dec *Decoder) Decode(v any) error {
 	// the connection is still usable since we read a complete JSON
 	// object from it before the error happened.
 	if err = checkStringsUnicode(dec.d.data); err == nil {
-		err = dec.d.unmarshal(v)
+		if err = checkDuplicateKeys(dec.d.data); err == nil {
+			err = dec.d.unmarshal(v)
+		}
 	}
 
 	// fixup token streaming state

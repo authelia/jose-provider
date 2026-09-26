@@ -112,6 +112,10 @@ func Unmarshal(data []byte, v any) error {
 		return err
 	}
 
+	if err = checkDuplicateKeys(data); err != nil {
+		return err
+	}
+
 	d.init(data)
 	return d.unmarshal(v)
 }
@@ -1292,6 +1296,56 @@ func getu4(s []byte) rune {
 		r = r*16 + rune(c)
 	}
 	return r
+}
+
+func checkDuplicateKeys(data []byte) error {
+	var objects []map[string]struct{}
+
+	for i := 0; i < len(data); i++ {
+		switch data[i] {
+		case '{':
+			objects = append(objects, nil)
+		case '}':
+			objects = objects[:len(objects)-1]
+		case '"':
+			start := i
+
+			for i++; data[i] != '"'; i++ {
+				if data[i] == '\\' {
+					i++
+				}
+			}
+
+			end := i
+
+			for end+1 < len(data) && isSpace(data[end+1]) {
+				end++
+			}
+
+			if end+1 >= len(data) || data[end+1] != ':' {
+				continue
+			}
+
+			key, err := unquote(data[start : i+1])
+			if err != nil {
+				return err
+			}
+
+			top := len(objects) - 1
+
+			if _, ok := objects[top][key]; ok {
+				return fmt.Errorf("json: duplicate key '%s' in object", key)
+			}
+
+			if objects[top] == nil {
+				objects[top] = map[string]struct{}{}
+			}
+
+			objects[top][key] = struct{}{}
+		}
+	}
+
+	return nil
 }
 
 func checkStringsUnicode(data []byte) error {
