@@ -360,6 +360,11 @@ func newJWKSigner(alg SignatureAlgorithm, signingKey JSONWebKey) (recipientSigIn
 		// the pub key for embedding, but doesn't have extra params like key id.
 		publicKey := signingKey
 		publicKey.Key = recipientPubKey.Key
+
+		if publicKey.KeyOps != nil {
+			publicKey.KeyOps = []string{"verify"}
+		}
+
 		recipient.publicKey = staticPublicKey(&publicKey)
 	}
 	return recipient, nil

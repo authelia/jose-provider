@@ -1083,11 +1083,28 @@ const (
 )
 
 var (
-	jwkOpsSign    = []string{"sign"}
-	jwkOpsVerify  = []string{"verify"}
-	jwkOpsEncrypt = []string{"encrypt", "wrapKey", "deriveKey"}
-	jwkOpsDecrypt = []string{"decrypt", "unwrapKey", "deriveKey"}
+	jwkOpsSign   = []string{"sign"}
+	jwkOpsVerify = []string{"verify"}
 )
+
+func jweKeyOps(alg KeyAlgorithm, encrypt bool) []string {
+	switch alg {
+	case DIRECT:
+		if encrypt {
+			return []string{"encrypt"}
+		}
+
+		return []string{"decrypt"}
+	case ECDH_ES, ECDH_ES_A128KW, ECDH_ES_A192KW, ECDH_ES_A256KW, PBES2_HS256_A128KW, PBES2_HS384_A192KW, PBES2_HS512_A256KW:
+		return []string{"deriveKey"}
+	default:
+		if encrypt {
+			return []string{"wrapKey"}
+		}
+
+		return []string{"unwrapKey"}
+	}
+}
 
 var jwkKeyOpsUse = map[string]string{
 	"sign":       jwkUseSignature,
@@ -1201,7 +1218,7 @@ func (k JSONWebKey) suitableFor(use, alg string, ops []string) bool {
 		return false
 	}
 
-	if len(k.KeyOps) != 0 && !slices.ContainsFunc(k.KeyOps, func(op string) bool { return slices.Contains(ops, op) }) {
+	if k.KeyOps != nil && !slices.ContainsFunc(k.KeyOps, func(op string) bool { return slices.Contains(ops, op) }) {
 		return false
 	}
 

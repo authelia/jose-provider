@@ -994,8 +994,9 @@ func TestJWKKeyOpsAreEnforced(t *testing.T) {
 		{"SignOnly", []string{"sign"}, true, false, false, false},
 		{"KeyWrapping", []string{"wrapKey", "unwrapKey"}, false, false, true, true},
 		{"UnwrapOnly", []string{"unwrapKey"}, false, false, false, true},
-		{"Encryption", []string{"encrypt", "decrypt"}, false, false, true, true},
+		{"Encryption", []string{"encrypt", "decrypt"}, false, false, false, false},
 		{"Unregistered", []string{"attest"}, false, false, false, false},
+		{"EmptyList", []string{}, false, false, false, false},
 	}
 
 	for _, tc := range testCases {
@@ -1024,6 +1025,54 @@ func TestJWKKeyOpsAreEnforced(t *testing.T) {
 
 			_, err = jwe.Decrypt(encKey)
 			check("Decrypt", tc.decrypt, err)
+		})
+	}
+}
+
+// RFC 7517 Section 4.3.
+func TestJWKKeyOpsFollowTheKeyManagementAlgorithm(t *testing.T) {
+	kek := bytes.Repeat([]byte{2}, 16)
+
+	testCases := []struct {
+		alg              KeyAlgorithm
+		encKey, decKey   any
+		encrypt, decrypt string
+	}{
+		{DIRECT, kek, kek, "encrypt", "decrypt"},
+		{A128KW, kek, kek, "wrapKey", "unwrapKey"},
+		{A128GCMKW, kek, kek, "wrapKey", "unwrapKey"},
+		{RSA_OAEP, &rsaTestKey.PublicKey, rsaTestKey, "wrapKey", "unwrapKey"},
+		{ECDH_ES, &ecTestKey256.PublicKey, ecTestKey256, "deriveKey", "deriveKey"},
+		{ECDH_ES_A128KW, &ecTestKey256.PublicKey, ecTestKey256, "deriveKey", "deriveKey"},
+		{PBES2_HS256_A128KW, []byte("password"), []byte("password"), "deriveKey", "deriveKey"},
+	}
+
+	ops := []string{"encrypt", "decrypt", "wrapKey", "unwrapKey", "deriveKey"}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.alg), func(t *testing.T) {
+			recipient := Recipient{Algorithm: tc.alg, Key: tc.encKey}
+			if tc.alg == PBES2_HS256_A128KW {
+				recipient.PBES2Count = 1000
+			}
+
+			encrypter, err := NewEncrypter(A128GCM, recipient, nil)
+			require.NoError(t, err)
+
+			jwe, err := encrypter.Encrypt([]byte("payload"))
+			require.NoError(t, err)
+
+			for _, op := range ops {
+				recipient.Key = JSONWebKey{Key: tc.encKey, KeyOps: []string{op}}
+
+				if _, err = NewEncrypter(A128GCM, recipient, nil); (err == nil) != (op == tc.encrypt) {
+					t.Errorf("NewEncrypter with key_ops %q: got %v", op, err)
+				}
+
+				if _, err = jwe.Decrypt(JSONWebKey{Key: tc.decKey, KeyOps: []string{op}}); (err == nil) != (op == tc.decrypt) {
+					t.Errorf("Decrypt with key_ops %q: got %v", op, err)
+				}
+			}
 		})
 	}
 }

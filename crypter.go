@@ -219,7 +219,7 @@ func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions)
 		return nil, err
 	}
 
-	if err := checkSuitableJWK(rcpt.Key, jwkUseEncryption, string(rcpt.Algorithm), jwkOpsEncrypt); err != nil {
+	if err := checkSuitableJWK(rcpt.Key, jwkUseEncryption, string(rcpt.Algorithm), jweKeyOps(rcpt.Algorithm, true)); err != nil {
 		return nil, err
 	}
 
@@ -397,7 +397,7 @@ func (ctx *genericEncrypter) addRecipient(recipient Recipient) (err error) {
 }
 
 func makeJWERecipient(alg KeyAlgorithm, encryptionKey any) (recipientKeyInfo, error) {
-	if err := checkSuitableJWK(encryptionKey, jwkUseEncryption, string(alg), jwkOpsEncrypt); err != nil {
+	if err := checkSuitableJWK(encryptionKey, jwkUseEncryption, string(alg), jweKeyOps(alg, true)); err != nil {
 		return recipientKeyInfo{}, err
 	}
 
@@ -609,7 +609,7 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 	keys, err := tryJWKS(decryptionKey, Header{
 		KeyID:     recipientHeaders.getString(headerKeyID),
 		Algorithm: recipientHeaders.getString(headerAlgorithm),
-	}, jwkUseEncryption, jwkOpsDecrypt)
+	}, jwkUseEncryption, jweKeyOps(KeyAlgorithm(recipientHeaders.getString(headerAlgorithm)), false))
 	if err != nil {
 		return nil, err
 	}
@@ -753,7 +753,7 @@ func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byt
 		keys, err := tryJWKS(decryptionKey, Header{
 			KeyID:     recipientHeaders.getString(headerKeyID),
 			Algorithm: recipientHeaders.getString(headerAlgorithm),
-		}, jwkUseEncryption, jwkOpsDecrypt)
+		}, jwkUseEncryption, jweKeyOps(KeyAlgorithm(recipientHeaders.getString(headerAlgorithm)), false))
 		if err != nil {
 			// The set holds nothing for this recipient. Another recipient may still be ours.
 			if errJWKS == nil {
