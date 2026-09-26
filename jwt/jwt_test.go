@@ -376,6 +376,30 @@ func TestParseSignedAndEncryptedAcceptsAsymmetricKeyAlgorithms(t *testing.T) {
 	}
 }
 
+// RFC 7519 Section 7.1.
+func TestParseSignedRejectsUnencodedPayload(t *testing.T) {
+	key := []byte("0123456789ABCDEF0123456789ABCDEF")
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, (&jose.SignerOptions{}).WithBase64(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := signer.Sign([]byte(`{"sub":"subject"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := obj.CompactSerialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256}); !errors.Is(err, ErrUnencodedPayload) {
+		t.Errorf("ParseSigned: got %v, want %v", err, ErrUnencodedPayload)
+	}
+}
+
 func BenchmarkDecodeSignedToken(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := ParseSigned(hmacSignedToken, []jose.SignatureAlgorithm{jose.HS256}); err != nil {

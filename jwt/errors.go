@@ -55,3 +55,7 @@ var ErrIssuedInTheFuture = errors.New("go-jose/go-jose/jwt: validation field, to
 
 // ErrInvalidContentType indicates that token requires JWT cty header.
 var ErrInvalidContentType = errors.New("go-jose/go-jose/jwt: expected content type to be JWT (cty header)")
+
+// ErrUnencodedPayload indicates a JWS whose "b64" header parameter is false, which RFC 7797 defines as leaving the
+// payload unencoded. RFC 7519 Section 7.1 requires the claims set of a JWT to be base64url encoded.
+var ErrUnencodedPayload = errors.New("go-jose/go-jose/jwt: claims set must be base64url encoded (b64 header)")
