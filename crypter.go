@@ -170,7 +170,8 @@ func (eo *EncrypterOptions) WithType(typ ContentType) *EncrypterOptions {
 // PBES2-HS384+A192KW, and PBES2-HS512+A256KW. If they are not provided a safe
 // default of 600000 will be used for the count and a 128-bit random salt will
 // be generated. When provided, the count must be at least 1000 and the salt at
-// least 8 bytes, as RFC 7518 Section 4.8.1 sets out. An [OpaqueKeyEncrypter] derives the key itself and cannot apply
+// least 8 bytes, as RFC 7518 Section 4.8.1 sets out, and the count at most
+// 1000000, the most this package will derive when decrypting. An [OpaqueKeyEncrypter] derives the key itself and cannot apply
 // either, so supplying them alongside one is an error rather than a request
 // this package can meet.
 type Recipient struct {
@@ -370,6 +371,10 @@ func (ctx *genericEncrypter) addRecipient(recipient Recipient) (err error) {
 		// Zero values select the defaults; anything else has to meet the minimums a recipient will hold it to.
 		if recipient.PBES2Count != 0 && recipient.PBES2Count < minP2C {
 			return fmt.Errorf("go-jose/go-jose: invalid PBES2Count: must be at least %d", minP2C)
+		}
+
+		if recipient.PBES2Count > maxP2C {
+			return fmt.Errorf("go-jose/go-jose: invalid PBES2Count: must be at most %d", maxP2C)
 		}
 
 		if len(recipient.PBES2Salt) != 0 && len(recipient.PBES2Salt) < minP2SSize {

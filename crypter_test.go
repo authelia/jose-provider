@@ -796,12 +796,13 @@ func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
 	}{
 		{"ShouldRejectShortSalt", 1000, []byte("1234567")},
 		{"ShouldRejectLowCount", 999, []byte("12345678")},
+		{"ShouldRejectHighCount", 1000001, []byte("12345678")},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name+"WhenEncrypting", func(t *testing.T) {
 			if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: tc.p2c, PBES2Salt: tc.p2s}, nil); err == nil {
-				t.Fatal("created a PBES2 encrypter below the minimum salt or count")
+				t.Fatal("created a PBES2 encrypter outside the bounds for the salt or count")
 			}
 		})
 
@@ -898,15 +899,26 @@ func TestRejectTooHighP2C(t *testing.T) {
 	recipientKeys := []any{"password", []byte("password")}
 	for _, key := range recipientKeys {
 		for _, alg := range algs {
-			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, PBES2Count: 1000001, Key: &JSONWebKey{
+			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, PBES2Count: 1000, Key: &JSONWebKey{
 				KeyID: "test-id",
 				Key:   key,
 			}}, nil)
 			if err != nil {
-				t.Error(err)
+				t.Fatal(err)
 			}
 
-			ciphertext, _ := enc.Encrypt(expected)
+			ciphertext, err := enc.Encrypt(expected)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			(*ciphertext.protected)[headerP2C] = makeRawMessage([]byte("1000001"))
+
+			headers := ciphertext.mergedHeaders(&ciphertext.recipients[0])
+
+			if _, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &ciphertext.recipients[0], randomKeyGenerator{size: 16}); err == nil || !strings.Contains(err.Error(), "too high") {
+				t.Fatalf("decryptKey: got %v, want an error for a P2C which is too high", err)
+			}
 
 			serialized1, _ := ciphertext.CompactSerialize()
 			serialized2 := ciphertext.FullSerialize()
