@@ -796,14 +796,20 @@ func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
 	}{
 		{"ShouldRejectShortSalt", 1000, []byte("1234567")},
 		{"ShouldRejectLowCount", 999, []byte("12345678")},
+		{"ShouldRejectHighCount", 1000001, []byte("12345678")},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name+"WhenEncrypting", func(t *testing.T) {
 			if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: tc.p2c, PBES2Salt: tc.p2s}, nil); err == nil {
-				t.Fatal("created a PBES2 encrypter below the minimum salt or count")
+				t.Fatal("created a PBES2 encrypter outside the bounds for the salt or count")
 			}
 		})
+
+		// TestRejectTooHighP2C covers decrypting above the maximum without deriving a key at that count.
+		if tc.p2c > maxP2C {
+			continue
+		}
 
 		t.Run(tc.name+"WhenDecrypting", func(t *testing.T) {
 			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password}, nil)
@@ -889,40 +895,42 @@ func TestEncrypterWithPBES2(t *testing.T) {
 }
 
 func TestRejectTooHighP2C(t *testing.T) {
-	expected := []byte("Lorem ipsum dolor sit amet")
-	algs := []KeyAlgorithm{
-		PBES2_HS256_A128KW, PBES2_HS384_A192KW, PBES2_HS512_A256KW,
+	// Encrypted with "password" and a p2c of 1000001, so each is authentic and only the limit refuses it.
+	messages := map[KeyAlgorithm][]string{
+		PBES2_HS256_A128KW: {
+			"eyJhbGciOiJQQkVTMi1IUzI1NitBMTI4S1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiIxWVdSRFIwMzZ5Zi1WbUFMMEZJak93In0.9mPpzWugkIYdMowbysLyXBNmVljVuuXn.pCMLx8WH7F5TWbmx.yiveuuS6EqSMYKJiF3XBmdKSl9C2vk_2tqQ.56Q183dbvzigs9F5Iksh_Q",
+			`{"protected":"eyJhbGciOiJQQkVTMi1IUzI1NitBMTI4S1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiIxWVdSRFIwMzZ5Zi1WbUFMMEZJak93In0","encrypted_key":"9mPpzWugkIYdMowbysLyXBNmVljVuuXn","iv":"pCMLx8WH7F5TWbmx","ciphertext":"yiveuuS6EqSMYKJiF3XBmdKSl9C2vk_2tqQ","tag":"56Q183dbvzigs9F5Iksh_Q"}`,
+		},
+		PBES2_HS384_A192KW: {
+			"eyJhbGciOiJQQkVTMi1IUzM4NCtBMTkyS1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiJiQ2lkS3RDdnVtX1Fac1JqNWp0alpRIn0.JiUaPjZV9jfwbpxDB8VOFH2qmuuwoNBp.cdA2-T0sB8ZAFviJ.6xiwbTKlYbGWCGCCn2OdhiLXU7xcyKgAzhE.dKtm9CBobeSKCgNj3moD-g",
+			`{"protected":"eyJhbGciOiJQQkVTMi1IUzM4NCtBMTkyS1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiJiQ2lkS3RDdnVtX1Fac1JqNWp0alpRIn0","encrypted_key":"JiUaPjZV9jfwbpxDB8VOFH2qmuuwoNBp","iv":"cdA2-T0sB8ZAFviJ","ciphertext":"6xiwbTKlYbGWCGCCn2OdhiLXU7xcyKgAzhE","tag":"dKtm9CBobeSKCgNj3moD-g"}`,
+		},
+		PBES2_HS512_A256KW: {
+			"eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiJadlZVbUJFT3NSMTZYRGhVaDRiS0NnIn0.uLuZHtYHdSUwXXeG1yOp_UheTiRVz36P.nWY5z3tAcPZaSBIF.o69wwtHIH72wrqXT9tg1jC6ZXBckHuKQX3U.ZXtHFOFFWfsLrOQA-SsQuA",
+			`{"protected":"eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMTI4R0NNIiwicDJjIjoxMDAwMDAxLCJwMnMiOiJadlZVbUJFT3NSMTZYRGhVaDRiS0NnIn0","encrypted_key":"uLuZHtYHdSUwXXeG1yOp_UheTiRVz36P","iv":"nWY5z3tAcPZaSBIF","ciphertext":"o69wwtHIH72wrqXT9tg1jC6ZXBckHuKQX3U","tag":"ZXtHFOFFWfsLrOQA-SsQuA"}`,
+		},
 	}
 
-	// Check with both strings and []byte
-	recipientKeys := []any{"password", []byte("password")}
-	for _, key := range recipientKeys {
-		for _, alg := range algs {
-			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, PBES2Count: 1000001, Key: &JSONWebKey{
-				KeyID: "test-id",
-				Key:   key,
-			}}, nil)
-			if err != nil {
-				t.Error(err)
-			}
+	for alg, serialized := range messages {
+		for _, input := range serialized {
+			t.Run(string(alg), func(t *testing.T) {
+				obj, err := ParseEncrypted(input, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
+				if err != nil {
+					t.Fatal(err)
+				}
 
-			ciphertext, _ := enc.Encrypt(expected)
+				headers := obj.mergedHeaders(&obj.recipients[0])
 
-			serialized1, _ := ciphertext.CompactSerialize()
-			serialized2 := ciphertext.FullSerialize()
+				if _, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &obj.recipients[0], randomKeyGenerator{size: 16}); err == nil || !strings.Contains(err.Error(), "too high") {
+					t.Errorf("decryptKey: got %v, want an error for a P2C which is too high", err)
+				}
 
-			parsed1, _ := ParseEncrypted(serialized1, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
-			parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
-
-			_, err = parsed1.Decrypt("password")
-			if err == nil {
-				t.Fatal("expected error decrypting expensive PBES2 key, got none")
-			}
-
-			_, err = parsed2.Decrypt([]byte("password"))
-			if err == nil {
-				t.Fatal("expected error decrypting expensive PBES2 key, got none")
-			}
+				for _, key := range []any{"password", []byte("password")} {
+					if _, err = obj.Decrypt(key); err == nil {
+						t.Errorf("Decrypt(%T) accepted a P2C which is too high", key)
+					}
+				}
+			})
 		}
 	}
 }
