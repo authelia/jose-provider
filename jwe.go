@@ -305,6 +305,10 @@ func (parsed *rawJSONWebEncryption) sanitized(
 	}
 
 	if parsed.Protected != nil && len(parsed.Protected.bytes()) > 0 {
+		if !isJSONObject(parsed.Protected.bytes()) {
+			return nil, errProtectedHeaderNotObject
+		}
+
 		err := json.Unmarshal(parsed.Protected.bytes(), &obj.protected)
 		if err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid protected header: %s, %s", err, parsed.Protected.base64())

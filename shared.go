@@ -400,6 +400,21 @@ func (parsed rawHeader) getCritical() ([]string, error) {
 	return q, nil
 }
 
+var errProtectedHeaderNotObject = errors.New("go-jose/go-jose: protected header is not a JSON object")
+
+func isJSONObject(data []byte) bool {
+	for _, c := range data {
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			continue
+		}
+
+		return c == '{'
+	}
+
+	return false
+}
+
 // checkExtraHeaders reports whether caller-supplied extra headers can be honoured as given. The reserved names
 // are the ones the signer or encrypter determines for itself: they are seeded into the protected header and the
 // extra headers are then copied over the top, so a caller-supplied value replaces what the operation actually

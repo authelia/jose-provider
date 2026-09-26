@@ -396,6 +396,21 @@ func TestJWEDecryptWithoutProtectedHeader(t *testing.T) {
 	}
 }
 
+// RFC 7516 Section 5.2 step 3.
+func TestParseEncryptedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) {
+	for _, protected := range []string{"null", " null ", "[]", `"alg"`, "1", "true"} {
+		t.Run(protected, func(t *testing.T) {
+			b64 := base64.RawURLEncoding.EncodeToString([]byte(protected))
+			input := `{"protected":"` + b64 + `","unprotected":{"alg":"dir","enc":"A128GCM"},` +
+				`"iv":"AAAAAAAAAAAAAAAA","ciphertext":"AAAA","tag":"AAAAAAAAAAAAAAAAAAAAAA"}`
+
+			if _, err := ParseEncryptedJSON(input, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM}); err == nil {
+				t.Errorf("ParseEncryptedJSON accepted a protected header of %s", protected)
+			}
+		})
+	}
+}
+
 func jweJSONWithoutProtectedHeader(t *testing.T, key []byte, plaintext []byte) string {
 	t.Helper()
 

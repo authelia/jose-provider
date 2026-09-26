@@ -18,6 +18,7 @@
 package jwt
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -234,6 +235,65 @@ func TestTamperedJWT(t *testing.T) {
 	err := tok.Claims(key, &cl)
 	if err == nil {
 		t.Error("Claims() on invalid token should fail")
+	}
+}
+
+// RFC 7519 Section 7.2 step 10.
+func TestClaimsRejectsAPayloadWhichIsNotAnObject(t *testing.T) {
+	key := []byte("0123456789ABCDEF0123456789ABCDEF")
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parse := func(t *testing.T, payload string) *JSONWebToken {
+		t.Helper()
+
+		obj, err := signer.Sign([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		serialized, err := obj.CompactSerialize()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tok, err := ParseSigned(serialized, []jose.SignatureAlgorithm{jose.HS256})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return tok
+	}
+
+	for _, payload := range []string{"null", " null ", "[]", `"sub"`, "1", "true"} {
+		t.Run(payload, func(t *testing.T) {
+			tok := parse(t, payload)
+
+			var claims Claims
+
+			var dest any
+
+			if err := tok.Claims(key, &claims); !errors.Is(err, ErrInvalidClaims) {
+				t.Errorf("Claims(&Claims{}): got %v, want %v", err, ErrInvalidClaims)
+			}
+
+			if err := tok.Claims(key, &dest); !errors.Is(err, ErrInvalidClaims) {
+				t.Errorf("Claims(&any): got %v, want %v", err, ErrInvalidClaims)
+			}
+
+			if err := tok.UnsafeClaimsWithoutVerification(&claims); !errors.Is(err, ErrInvalidClaims) {
+				t.Errorf("UnsafeClaimsWithoutVerification: got %v, want %v", err, ErrInvalidClaims)
+			}
+		})
+	}
+
+	var claims Claims
+
+	if err := parse(t, ` {"iss":"issuer"} `).Claims(key, &claims); err != nil || claims.Issuer != "issuer" {
+		t.Errorf("Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
 	}
 }
 
