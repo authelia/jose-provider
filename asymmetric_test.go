@@ -491,9 +491,9 @@ func TestInvalidECPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := headers.set(headerEPK, &JSONWebKey{Key: &invalid.PublicKey}); err != nil {
-		t.Fatal(err)
-	}
+	headers[headerEPK] = makeRawMessage([]byte(`{"kty":"EC","crv":"P-256","x":"` +
+		newFixedSizeBuffer(invalid.X.Bytes(), 32).base64() + `","y":"` +
+		newFixedSizeBuffer(invalid.Y.Bytes(), 32).base64() + `"}`))
 
 	dec := ecDecrypterSigner{
 		privateKey: ecTestKey256,

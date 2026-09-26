@@ -1077,6 +1077,95 @@ func TestJWKKeyOpsFollowTheKeyManagementAlgorithm(t *testing.T) {
 	}
 }
 
+// RFC 7517 Section 4.7, RFC 7518 Sections 6.2.1 and 6.3.2, and RFC 8037 Section 2.
+func TestMarshalJWKRejectsKeysUnmarshalRejects(t *testing.T) {
+	otherKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{SerialNumber: big.NewInt(1)}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &otherKey.PublicKey, otherKey)
+	require.NoError(t, err)
+
+	otherCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+
+	_, edOther, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	edMismatched := ed25519.PrivateKey(append(append([]byte{}, ed25519PrivateKey.Seed()...), edOther[32:]...))
+
+	offCurve := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
+
+	negativeX := &ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).Neg(ecTestKey256.X), Y: ecTestKey256.Y}
+
+	partialCRT := &rsa.PrivateKey{
+		PublicKey:   rsaTestKey.PublicKey,
+		D:           rsaTestKey.D,
+		Primes:      rsaTestKey.Primes,
+		Precomputed: rsa.PrecomputedValues{Dp: rsaTestKey.Precomputed.Dp},
+	}
+
+	negativeD := &rsa.PrivateKey{
+		PublicKey: rsaTestKey.PublicKey,
+		D:         new(big.Int).Neg(rsaTestKey.D),
+		Primes:    rsaTestKey.Primes,
+	}
+
+	testCases := map[string]JSONWebKey{
+		"CertificateForAnotherKey":   {Key: &ecTestKey256.PublicKey, Certificates: []*x509.Certificate{otherCert}},
+		"CertificateForSymmetricKey": {Key: bytes.Repeat([]byte{1}, 32), Certificates: []*x509.Certificate{otherCert}},
+		"EmptySymmetricKey":          {Key: []byte{}},
+		"NilSymmetricKey":            {Key: []byte(nil)},
+		"PartialCRTValues":           {Key: partialCRT},
+		"NegativeRSAPrivateExponent": {Key: negativeD},
+		"MismatchedEd25519Halves":    {Key: edMismatched},
+		"ECPointNotOnCurve":          {Key: offCurve},
+		"ECPrivatePointNotOnCurve":   {Key: &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)}},
+		"NegativeECCoordinate":       {Key: negativeX},
+	}
+
+	for name, jwk := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if out, err := jwk.MarshalJSON(); err == nil {
+				t.Errorf("MarshalJSON wrote %s", out)
+			}
+		})
+	}
+
+	if _, err = (JSONWebKey{Key: otherKey, Certificates: []*x509.Certificate{otherCert}}).MarshalJSON(); err != nil {
+		t.Errorf("MarshalJSON rejected a key with its own certificate: %v", err)
+	}
+}
+
+func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
+	_, edOther, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	edMismatched := ed25519.PrivateKey(append(append([]byte{}, ed25519PrivateKey.Seed()...), edOther[32:]...))
+	offCurve := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
+
+	keys := map[string]any{
+		"MismatchedEd25519Halves":  edMismatched,
+		"ECPointNotOnCurve":        offCurve,
+		"ECPrivatePointNotOnCurve": &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)},
+	}
+
+	for name, key := range keys {
+		t.Run(name, func(t *testing.T) {
+			jwk := JSONWebKey{Key: key}
+
+			if jwk.Valid() {
+				t.Error("Valid reported an inconsistent key as valid")
+			}
+
+			if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
+				t.Error("Thumbprint computed a thumbprint for an inconsistent key")
+			}
+		})
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public
@@ -1563,7 +1652,8 @@ func TestJWKIsPublic(t *testing.T) {
 
 func TestJWKValid(t *testing.T) {
 	bigInt := big.NewInt(0)
-	eccPub := ecdsa.PublicKey{Curve: elliptic.P256(), X: bigInt, Y: bigInt}
+	eccPub := ecTestKey256.PublicKey
+	eccOffCurve := ecdsa.PublicKey{Curve: elliptic.P256(), X: bigInt, Y: bigInt}
 	rsaPubZero := rsa.PublicKey{N: bigInt, E: 1}
 	rsaPub := rsa.PublicKey{N: big.NewInt(1), E: 1}
 	edPubEmpty := ed25519.PublicKey([]byte{})
@@ -1576,8 +1666,10 @@ func TestJWKValid(t *testing.T) {
 		{nil, false},
 		{&ecdsa.PublicKey{}, false},
 		{&eccPub, true},
+		{&eccOffCurve, false},
 		{&ecdsa.PrivateKey{}, false},
-		{&ecdsa.PrivateKey{PublicKey: eccPub, D: bigInt}, true},
+		{&ecdsa.PrivateKey{PublicKey: eccPub, D: ecTestKey256.D}, true},
+		{&ecdsa.PrivateKey{PublicKey: eccOffCurve, D: bigInt}, false},
 		{&rsa.PublicKey{}, false},
 		{&rsaPub, true},
 		{&rsaPubZero, false},
