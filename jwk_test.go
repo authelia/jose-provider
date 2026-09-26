@@ -771,6 +771,52 @@ func TestSingleJWKUseAndAlgorithmAreEnforced(t *testing.T) {
 	}
 }
 
+// RFC 7518 Sections 2, 6.3.1.1 and 6.3.1.2.
+func TestUnmarshalRSAJWKRejectsLeadingZeroOctets(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	padded := func(b []byte) string {
+		return base64.RawURLEncoding.EncodeToString(append([]byte{0}, b...))
+	}
+
+	testCases := []struct {
+		name   string
+		key    any
+		member string
+		value  string
+	}{
+		{"PublicN", &key.PublicKey, "n", padded(key.N.Bytes())},
+		{"PublicE", &key.PublicKey, "e", padded(big.NewInt(int64(key.E)).Bytes())},
+		{"PrivateN", key, "n", padded(key.N.Bytes())},
+		{"PrivateE", key, "e", padded(big.NewInt(int64(key.E)).Bytes())},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := (&JSONWebKey{Key: tc.key}).MarshalJSON()
+			require.NoError(t, err)
+
+			var members map[string]any
+
+			require.NoError(t, json.Unmarshal(raw, &members))
+
+			var jwk JSONWebKey
+
+			require.NoError(t, jwk.UnmarshalJSON(raw))
+
+			members[tc.member] = tc.value
+
+			raw, err = json.Marshal(members)
+			require.NoError(t, err)
+
+			if err = jwk.UnmarshalJSON(raw); err == nil {
+				t.Errorf("UnmarshalJSON accepted %s with a leading zero octet", tc.member)
+			}
+		})
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public

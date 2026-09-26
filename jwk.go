@@ -649,9 +649,19 @@ func (k *JSONWebKey) Valid() bool {
 	return true
 }
 
+func hasLeadingZero(b *byteBuffer) bool {
+	data := b.bytes()
+
+	return len(data) > 0 && data[0] == 0
+}
+
 func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
 	if key.N == nil || key.E == nil {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, missing n/e values")
+	}
+
+	if hasLeadingZero(key.N) || hasLeadingZero(key.E) {
+		return nil, errors.New("go-jose/go-jose: invalid RSA key, n and e must use the minimum number of octets")
 	}
 
 	e, err := key.E.toInt()
@@ -839,6 +849,10 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 	// complete set, so a partial one would otherwise be kept unchecked and written back out as given.
 	if (key.Dp == nil) != (key.Dq == nil) || (key.Dp == nil) != (key.Qi == nil) {
 		return nil, errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
+	}
+
+	if hasLeadingZero(key.N) || hasLeadingZero(key.E) {
+		return nil, errors.New("go-jose/go-jose: invalid RSA private key, n and e must use the minimum number of octets")
 	}
 
 	e, err := key.E.toInt()
