@@ -399,6 +399,35 @@ func TestVerifyMultiJWKSNoMatchingKid(t *testing.T) {
 	}
 }
 
+// RFC 7515 Section 4.1.3.
+func TestSignRefusesToEmbedAPrivateJWK(t *testing.T) {
+	testCases := []struct {
+		name    string
+		initial *JSONWebKey
+	}{
+		{"PublicAtCreation", &JSONWebKey{Key: &ecTestKey256.PublicKey}},
+		{"NoneAtCreation", nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sw := makeOpaqueSigner(t, ecTestKey256, ES256)
+			sw.pk = tc.initial
+
+			signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: sw}, &SignerOptions{EmbedJWK: true})
+			if err != nil {
+				t.Fatalf("NewSigner: %v", err)
+			}
+
+			sw.pk = &JSONWebKey{Key: ecTestKey256}
+
+			if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrNotPublic) {
+				t.Fatalf("Sign: got %v, want %v", err, ErrNotPublic)
+			}
+		})
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:
@@ -972,6 +1001,38 @@ func TestNewSignerRejectsUnusableExtraHeaders(t *testing.T) {
 				so.WithHeader(headerB64, false).WithHeader(headerCritical, []any{"b64"})
 			},
 			nil,
+		},
+		{
+			// RFC 7515 Section 4.1.3.
+			"PrivateJWK",
+			func(so *SignerOptions) { so.WithHeader(headerJWK, JSONWebKey{Key: ecTestKey256}) },
+			ErrNotPublic,
+		},
+		{
+			"PrivateJWKAsJSON",
+			func(so *SignerOptions) {
+				raw, _ := JSONWebKey{Key: ecTestKey256}.MarshalJSON()
+
+				var m map[string]any
+
+				_ = json.Unmarshal(raw, &m)
+
+				so.WithHeader(headerJWK, m)
+			},
+			ErrNotPublic,
+		},
+		{
+			"PublicJWK",
+			func(so *SignerOptions) { so.WithHeader(headerJWK, JSONWebKey{Key: &ecTestKey256.PublicKey}) },
+			nil,
+		},
+		{
+			"JWKWithEmbedJWK",
+			func(so *SignerOptions) {
+				so.EmbedJWK = true
+				so.WithHeader(headerJWK, JSONWebKey{Key: &ecTestKey256.PublicKey})
+			},
+			ErrReservedHeaderParameter,
 		},
 		{
 			"KeyIDIsTheCallersToSet",

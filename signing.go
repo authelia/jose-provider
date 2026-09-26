@@ -163,6 +163,30 @@ func checkExtraB64Critical(extra map[HeaderKey]any) error {
 	return ErrB64NotCritical
 }
 
+func checkExtraJWK(extra map[HeaderKey]any) error {
+	v, ok := extra[headerJWK]
+	if !ok {
+		return nil
+	}
+
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid jwk header parameter: %w", err)
+	}
+
+	var jwk JSONWebKey
+
+	if err = json.Unmarshal(raw, &jwk); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid jwk header parameter: %w", err)
+	}
+
+	if !jwk.IsPublic() {
+		return ErrNotPublic
+	}
+
+	return nil
+}
+
 type payloadSigner interface {
 	signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error)
 }
@@ -220,7 +244,17 @@ func NewMultiSigner(sigs []SigningKey, opts *SignerOptions) (Signer, error) {
 			return nil, err
 		}
 
+		if signer.embedJWK {
+			if err := checkExtraHeaders(signer.extraHeaders, headerJWK); err != nil {
+				return nil, err
+			}
+		}
+
 		if err := checkExtraB64Critical(signer.extraHeaders); err != nil {
+			return nil, err
+		}
+
+		if err := checkExtraJWK(signer.extraHeaders); err != nil {
 			return nil, err
 		}
 	}
@@ -343,6 +377,10 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 			//
 			// See https://github.com/square/go-jose/issues/157 for more context.
 			if ctx.embedJWK {
+				if !recipientPubKey.IsPublic() {
+					return nil, ErrNotPublic
+				}
+
 				// MarshalJSON can fail for a semantically inconsistent key (an AKP
 				// key whose Algorithm contradicts its parameter set). Surface that
 				// as an error rather than letting mustSerializeJSON panic below.
