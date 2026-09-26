@@ -177,7 +177,9 @@ func ParseEncrypted(s string,
 // header parameters, respectively, of the outer JWE. They must be nonempty, and each "alg" or "enc"
 // header in parsed data must contain a value that is present in the corresponding parameter. That
 // includes the protected and unprotected headers as well as all recipients. To accept
-// multiple algorithms, pass a slice of all the algorithms you want to accept.
+// multiple algorithms, pass a slice of all the algorithms you want to accept. Unlike
+// ParseEncrypted, asymmetric and password-based key management algorithms are accepted, as the
+// inner JWS rather than the encryption authenticates the sender.
 //
 // The signatureAlgorithms parameter is used to validate the "alg" header parameter of the
 // inner JWS. It must be nonempty, and the "alg" header in the inner JWS must contain a value
@@ -187,7 +189,7 @@ func ParseSignedAndEncrypted(s string,
 	contentEncryption []jose.ContentEncryption,
 	signatureAlgorithms []jose.SignatureAlgorithm,
 ) (*NestedJSONWebToken, error) {
-	enc, err := parseEncryptedCompact(s, encryptionKeyAlgorithms, contentEncryption)
+	enc, err := jose.ParseEncryptedCompact(s, encryptionKeyAlgorithms, contentEncryption)
 	if err != nil {
 		return nil, err
 	}
