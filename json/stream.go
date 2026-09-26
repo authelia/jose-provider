@@ -70,13 +70,16 @@ func (dec *Decoder) Decode(v any) error {
 	if err != nil {
 		return err
 	}
+
 	dec.d.init(dec.buf[dec.scanp : dec.scanp+n])
 	dec.scanp += n
 
 	// Don't save err from unmarshal into dec.err:
 	// the connection is still usable since we read a complete JSON
 	// object from it before the error happened.
-	err = dec.d.unmarshal(v)
+	if err = checkStringsUnicode(dec.d.data); err == nil {
+		err = dec.d.unmarshal(v)
+	}
 
 	// fixup token streaming state
 	dec.tokenValueEnd()

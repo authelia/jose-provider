@@ -96,9 +96,8 @@ import (
 // on the value and produces no error.
 //
 // When unmarshaling quoted strings, invalid UTF-8 or
-// invalid UTF-16 surrogate pairs are not treated as an error.
-// Instead, they are replaced by the Unicode replacement
-// character U+FFFD.
+// invalid UTF-16 surrogate pairs are treated as an error,
+// and Unmarshal returns [ErrInvalidUnicode].
 func Unmarshal(data []byte, v any) error {
 	// Check for well-formedness.
 	// Avoids filling out half a data structure
@@ -106,6 +105,10 @@ func Unmarshal(data []byte, v any) error {
 	var d decodeState
 	err := checkValid(data, &d.scan)
 	if err != nil {
+		return err
+	}
+
+	if err = checkStringsUnicode(data); err != nil {
 		return err
 	}
 
@@ -249,6 +252,11 @@ const phasePanicMsg = "JSON decoder out of sync - data changing underfoot?"
 var (
 	errPhase         = errors.New(phasePanicMsg)
 	errStringTooLong = errors.New("json: string literal too long to decode")
+
+	// ErrInvalidUnicode indicates a string which is not valid Unicode: a raw byte sequence which is not UTF-8, or
+	// an escaped UTF-16 surrogate which is not one half of a pair. RFC 7493 Section 2.1 excludes both from I-JSON,
+	// and decoding them as U+FFFD would let distinct strings on the wire decode as the same value.
+	ErrInvalidUnicode = errors.New("json: string literal is not valid unicode")
 )
 
 // maxUnquoteInitial and maxUnquoteRegrow bound the two buffer sizes computed in
@@ -726,7 +734,7 @@ func (d *decodeState) object(v reflect.Value) error {
 		item := d.data[start:d.readIndex()]
 		key, err := unquoteBytes(item)
 		if err != nil {
-			if errors.Is(err, errStringTooLong) {
+			if isUnquoteError(err) {
 				return err
 			}
 			panic(phasePanicMsg)
@@ -966,7 +974,7 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 			if fromQuoted {
 				return fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type())
 			}
-			if errors.Is(err, errStringTooLong) {
+			if isUnquoteError(err) {
 				return err
 			}
 			panic(phasePanicMsg)
@@ -1020,7 +1028,7 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 			if fromQuoted {
 				return fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type())
 			}
-			if errors.Is(err, errStringTooLong) {
+			if isUnquoteError(err) {
 				return err
 			}
 			panic(phasePanicMsg)
@@ -1187,7 +1195,7 @@ func (d *decodeState) objectInterface() (map[string]any, error) {
 		item := d.data[start:d.readIndex()]
 		key, err := unquote(item)
 		if err != nil {
-			if errors.Is(err, errStringTooLong) {
+			if isUnquoteError(err) {
 				return nil, err
 			}
 			panic(phasePanicMsg)
@@ -1246,7 +1254,7 @@ func (d *decodeState) literalInterface() any {
 	case '"': // string
 		s, err := unquote(item)
 		if err != nil {
-			if !errors.Is(err, errStringTooLong) {
+			if !isUnquoteError(err) {
 				panic(phasePanicMsg)
 			}
 			d.saveError(err)
@@ -1284,6 +1292,47 @@ func getu4(s []byte) rune {
 		r = r*16 + rune(c)
 	}
 	return r
+}
+
+func checkStringsUnicode(data []byte) error {
+	for i := 0; i < len(data); i++ {
+		if data[i] != '"' {
+			continue
+		}
+
+		for i++; i < len(data) && data[i] != '"'; {
+			switch c := data[i]; {
+			case c == '\\' && i+1 < len(data) && data[i+1] == 'u':
+				rr := getu4(data[i:])
+				i += 6
+
+				if utf16.IsSurrogate(rr) {
+					if utf16.DecodeRune(rr, getu4(data[i:])) == unicode.ReplacementChar {
+						return ErrInvalidUnicode
+					}
+
+					i += 6
+				}
+			case c == '\\':
+				i += 2
+			case c < utf8.RuneSelf:
+				i++
+			default:
+				rr, size := utf8.DecodeRune(data[i:])
+				if rr == utf8.RuneError && size == 1 {
+					return ErrInvalidUnicode
+				}
+
+				i += size
+			}
+		}
+	}
+
+	return nil
+}
+
+func isUnquoteError(err error) bool {
+	return errors.Is(err, errStringTooLong) || errors.Is(err, ErrInvalidUnicode)
 }
 
 func unquote(s []byte) (t string, err error) {
@@ -1384,8 +1433,7 @@ func unquoteBytes(s []byte) (t []byte, err error) {
 						w += utf8.EncodeRune(b[w:], dec)
 						break
 					}
-					// Invalid surrogate; fall back to replacement rune.
-					rr = unicode.ReplacementChar
+					return nil, ErrInvalidUnicode
 				}
 				w += utf8.EncodeRune(b[w:], rr)
 			}
@@ -1400,9 +1448,11 @@ func unquoteBytes(s []byte) (t []byte, err error) {
 			r++
 			w++
 
-		// Coerce to well-formed UTF-8.
 		default:
 			rr, size := utf8.DecodeRune(s[r:])
+			if rr == utf8.RuneError && size == 1 {
+				return nil, ErrInvalidUnicode
+			}
 			r += size
 			w += utf8.EncodeRune(b[w:], rr)
 		}
