@@ -41,16 +41,17 @@ import (
 
 // rawJSONWebKey represents a public or private key in JWK format, used for parsing/serializing.
 type rawJSONWebKey struct {
-	Use string      `json:"use,omitempty"`
-	Kty string      `json:"kty,omitempty"`
-	Kid string      `json:"kid,omitempty"`
-	Crv string      `json:"crv,omitempty"`
-	Alg string      `json:"alg,omitempty"`
-	K   *byteBuffer `json:"k,omitempty"`
-	X   *byteBuffer `json:"x,omitempty"`
-	Y   *byteBuffer `json:"y,omitempty"`
-	N   *byteBuffer `json:"n,omitempty"`
-	E   *byteBuffer `json:"e,omitempty"`
+	Use    string      `json:"use,omitempty"`
+	KeyOps []string    `json:"key_ops,omitempty"`
+	Kty    string      `json:"kty,omitempty"`
+	Kid    string      `json:"kid,omitempty"`
+	Crv    string      `json:"crv,omitempty"`
+	Alg    string      `json:"alg,omitempty"`
+	K      *byteBuffer `json:"k,omitempty"`
+	X      *byteBuffer `json:"x,omitempty"`
+	Y      *byteBuffer `json:"y,omitempty"`
+	N      *byteBuffer `json:"n,omitempty"`
+	E      *byteBuffer `json:"e,omitempty"`
 	// AKP (RFC 9964). "pub" is the encoded public key; "priv" is the 32-byte
 	// seed. An AKP key has no "crv" / "alg" identifies the parameter set, and is
 	// REQUIRED.
@@ -95,6 +96,9 @@ type JSONWebKey struct {
 	Algorithm string
 	// Key use, parsed from `use` header.
 	Use string
+	// Key operations, parsed from `key_ops` header. RFC 7517 Section 4.3 forbids duplicate values, and requires
+	// them to be consistent with Use when both are present.
+	KeyOps []string
 
 	// X.509 certificate chain, parsed from `x5c` header.
 	Certificates []*x509.Certificate
@@ -138,8 +142,13 @@ func (k JSONWebKey) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
+	if err = checkKeyOps(k.Use, k.KeyOps); err != nil {
+		return nil, err
+	}
+
 	raw.Kid = k.KeyID
 	raw.Use = k.Use
+	raw.KeyOps = k.KeyOps
 
 	if raw.Kty == "AKP" {
 		// RFC 9964 requires "alg" on every AKP key, and mldsaRawJWK already
@@ -201,6 +210,10 @@ func (k *JSONWebKey) UnmarshalJSON(data []byte) (err error) {
 	var raw rawJSONWebKey
 	err = json.Unmarshal(data, &raw)
 	if err != nil {
+		return err
+	}
+
+	if err = checkKeyOps(raw.Use, raw.KeyOps); err != nil {
 		return err
 	}
 
@@ -303,7 +316,7 @@ func (k *JSONWebKey) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	*k = JSONWebKey{Key: key, KeyID: raw.Kid, Algorithm: raw.Alg, Use: raw.Use, Certificates: certs}
+	*k = JSONWebKey{Key: key, KeyID: raw.Kid, Algorithm: raw.Alg, Use: raw.Use, KeyOps: raw.KeyOps, Certificates: certs}
 
 	if raw.X5u != "" {
 		k.CertificatesURL, err = url.Parse(raw.X5u)
@@ -1069,6 +1082,67 @@ const (
 	jwkUseEncryption = "enc"
 )
 
+var (
+	jwkOpsSign   = []string{"sign"}
+	jwkOpsVerify = []string{"verify"}
+)
+
+func jweKeyOps(alg KeyAlgorithm, encrypt bool) []string {
+	switch alg {
+	case DIRECT:
+		if encrypt {
+			return []string{"encrypt"}
+		}
+
+		return []string{"decrypt"}
+	case ECDH_ES, ECDH_ES_A128KW, ECDH_ES_A192KW, ECDH_ES_A256KW, PBES2_HS256_A128KW, PBES2_HS384_A192KW, PBES2_HS512_A256KW:
+		return []string{"deriveKey"}
+	default:
+		if encrypt {
+			return []string{"wrapKey"}
+		}
+
+		return []string{"unwrapKey"}
+	}
+}
+
+var jwkKeyOpsUse = map[string]string{
+	"sign":       jwkUseSignature,
+	"verify":     jwkUseSignature,
+	"encrypt":    jwkUseEncryption,
+	"decrypt":    jwkUseEncryption,
+	"wrapKey":    jwkUseEncryption,
+	"unwrapKey":  jwkUseEncryption,
+	"deriveKey":  jwkUseEncryption,
+	"deriveBits": jwkUseEncryption,
+}
+
+func checkKeyOps(use string, keyOps []string) error {
+	if keyOps != nil && len(keyOps) == 0 {
+		return errors.New("go-jose/go-jose: invalid JWK, key_ops must list at least one operation")
+	}
+
+	seen := make(map[string]struct{}, len(keyOps))
+
+	for _, op := range keyOps {
+		if op == "" {
+			return errors.New("go-jose/go-jose: invalid JWK, key_ops values must be non-empty strings")
+		}
+
+		if _, ok := seen[op]; ok {
+			return fmt.Errorf("go-jose/go-jose: invalid JWK, duplicate key_ops value %q", op)
+		}
+
+		seen[op] = struct{}{}
+
+		if opUse, ok := jwkKeyOpsUse[op]; ok && (use == jwkUseSignature || use == jwkUseEncryption) && opUse != use {
+			return fmt.Errorf("go-jose/go-jose: invalid JWK, key_ops value %q is inconsistent with use %q", op, use)
+		}
+	}
+
+	return nil
+}
+
 // tryJWKS returns the keys which may be used to process a message with the given header. When the supplied key is
 // not a JWK Set it is the sole candidate and is returned as is.
 //
@@ -1076,7 +1150,7 @@ const (
 // distinct, so a set which reuses one across an encryption key and a signing key, or across two algorithms, is
 // well formed. Candidates are therefore narrowed by the "use" and "alg" members of each JWK rather than resolved
 // to a single key here, and the caller tries each in turn.
-func tryJWKS(key any, header Header, use string) ([]any, error) {
+func tryJWKS(key any, header Header, use string, ops []string) ([]any, error) {
 	var jwks JSONWebKeySet
 
 	switch jwksType := key.(type) {
@@ -1086,7 +1160,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 		jwks = jwksType
 	default:
 		// If the specified key is not a JWKS, return as is.
-		if err := checkSuitableJWK(key, use, header.Algorithm); err != nil {
+		if err := checkSuitableJWK(key, use, header.Algorithm, ops); err != nil {
 			return nil, err
 		}
 
@@ -1103,7 +1177,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 	var keys []any
 
 	for _, jwk := range jwks.Key(kid) {
-		if !jwk.suitableFor(use, header.Algorithm) {
+		if !jwk.suitableFor(use, header.Algorithm, ops) {
 			continue
 		}
 
@@ -1117,7 +1191,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 	return keys, nil
 }
 
-func checkSuitableJWK(key any, use, alg string) error {
+func checkSuitableJWK(key any, use, alg string, ops []string) error {
 	var jwk *JSONWebKey
 
 	switch k := key.(type) {
@@ -1127,7 +1201,7 @@ func checkSuitableJWK(key any, use, alg string) error {
 		jwk = k
 	}
 
-	if jwk == nil || jwk.suitableFor(use, alg) {
+	if jwk == nil || jwk.suitableFor(use, alg, ops) {
 		return nil
 	}
 
@@ -1139,8 +1213,12 @@ func checkSuitableJWK(key any, use, alg string) error {
 // RFC 7517 Section 4.2 and Section 4.4 make the "use" and "alg" members optional, and both are advisory rather
 // than binding on the recipient. A key which omits one is therefore a candidate whatever the message asks for;
 // only a key which states a purpose or an algorithm and contradicts the message is dropped.
-func (k JSONWebKey) suitableFor(use, alg string) bool {
+func (k JSONWebKey) suitableFor(use, alg string, ops []string) bool {
 	if k.Use != "" && use != "" && k.Use != use {
+		return false
+	}
+
+	if k.KeyOps != nil && !slices.ContainsFunc(k.KeyOps, func(op string) bool { return slices.Contains(ops, op) }) {
 		return false
 	}
 

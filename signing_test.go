@@ -480,6 +480,39 @@ func TestSignReturnsAnErrorForAHeaderJSONCannotEncode(t *testing.T) {
 	}
 }
 
+// RFC 7517 Section 4.3.
+func TestEmbeddedJWKVerifiesWhenSigningKeyListsKeyOps(t *testing.T) {
+	signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: JSONWebKey{Key: ecTestKey256, KeyOps: []string{"sign"}}}, &SignerOptions{EmbedJWK: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := signer.Sign([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serialized, err := obj.CompactSerialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := ParseSignedCompact(serialized, []SignatureAlgorithm{ES256})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	embedded := parsed.Signatures[0].Header.JSONWebKey
+
+	if !reflect.DeepEqual(embedded.KeyOps, []string{"verify"}) {
+		t.Errorf("embedded key_ops = %v, want [verify]", embedded.KeyOps)
+	}
+
+	if _, err = parsed.Verify(embedded); err != nil {
+		t.Errorf("Verify with the embedded JWK: %v", err)
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:

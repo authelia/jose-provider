@@ -341,7 +341,7 @@ func makeJWSRecipient(alg SignatureAlgorithm, signingKey any) (recipientSigInfo,
 }
 
 func newJWKSigner(alg SignatureAlgorithm, signingKey JSONWebKey) (recipientSigInfo, error) {
-	if err := checkSuitableJWK(signingKey, jwkUseSignature, string(alg)); err != nil {
+	if err := checkSuitableJWK(signingKey, jwkUseSignature, string(alg), jwkOpsSign); err != nil {
 		return recipientSigInfo{}, err
 	}
 
@@ -360,6 +360,11 @@ func newJWKSigner(alg SignatureAlgorithm, signingKey JSONWebKey) (recipientSigIn
 		// the pub key for embedding, but doesn't have extra params like key id.
 		publicKey := signingKey
 		publicKey.Key = recipientPubKey.Key
+
+		if publicKey.KeyOps != nil {
+			publicKey.KeyOps = []string{"verify"}
+		}
+
 		recipient.publicKey = staticPublicKey(&publicKey)
 	}
 	return recipient, nil
@@ -561,7 +566,7 @@ func (obj JSONWebSignature) DetachedVerify(payload []byte, verificationKey any) 
 		}
 	}
 
-	keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature)
+	keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature, jwkOpsVerify)
 	if err != nil {
 		return err
 	}
@@ -657,7 +662,7 @@ func (obj JSONWebSignature) DetachedVerifyMulti(payload []byte, verificationKey 
 
 		// If the verification key is a JWK Set, narrow it to the keys this signature's "kid" and "alg"
 		// admit. If none match, skip this signature.
-		keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature)
+		keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature, jwkOpsVerify)
 		if err != nil {
 			continue
 		}
