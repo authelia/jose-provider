@@ -200,11 +200,68 @@ func (ctx *genericSigner) checkExtraHeaders() error {
 		}
 	}
 
+	if err := checkExtraCritical(ctx.extraHeaders); err != nil {
+		return err
+	}
+
 	if err := checkExtraB64Critical(ctx.extraHeaders); err != nil {
 		return err
 	}
 
 	return checkExtraJWK(ctx.extraHeaders)
+}
+
+var jwsRegisteredHeaders = map[HeaderKey]struct{}{
+	"alg": {}, "jku": {}, "jwk": {}, "kid": {}, "x5u": {}, "x5c": {}, "x5t": {}, "x5t#S256": {}, "typ": {}, "cty": {}, "crit": {},
+}
+
+func checkExtraCritical(extra map[HeaderKey]any) error {
+	v, ok := extra[headerCritical]
+	if !ok {
+		return nil
+	}
+
+	var names []string
+
+	switch crit := v.(type) {
+	case []string:
+		names = crit
+	case []any:
+		for _, name := range crit {
+			s, ok := name.(string)
+			if !ok {
+				return fmt.Errorf("%w: names must be strings", ErrInvalidCriticalHeader)
+			}
+
+			names = append(names, s)
+		}
+	default:
+		return fmt.Errorf("%w: must be a list of names", ErrInvalidCriticalHeader)
+	}
+
+	if len(names) == 0 {
+		return fmt.Errorf("%w: must not be empty", ErrInvalidCriticalHeader)
+	}
+
+	seen := make(map[string]struct{}, len(names))
+
+	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("%w: %q is listed more than once", ErrInvalidCriticalHeader, name)
+		}
+
+		seen[name] = struct{}{}
+
+		if _, ok := jwsRegisteredHeaders[HeaderKey(name)]; ok {
+			return fmt.Errorf("%w: %q is defined by RFC 7515", ErrInvalidCriticalHeader, name)
+		}
+
+		if _, ok := extra[HeaderKey(name)]; !ok {
+			return fmt.Errorf("%w: %q is not in the header", ErrInvalidCriticalHeader, name)
+		}
+	}
+
+	return nil
 }
 
 type payloadSigner interface {
