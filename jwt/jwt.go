@@ -46,6 +46,10 @@ func (t *JSONWebToken) Claims(key any, dest ...any) error {
 		return err
 	}
 
+	if !isJSONObject(b) {
+		return ErrInvalidClaims
+	}
+
 	for _, d := range dest {
 		if err := json.Unmarshal(b, d); err != nil {
 			return err
@@ -63,6 +67,9 @@ func (t *JSONWebToken) UnsafeClaimsWithoutVerification(dest ...any) error {
 		return fmt.Errorf("go-jose/go-jose: Cannot get unverified claims")
 	}
 	claims := t.unverifiedPayload()
+	if !isJSONObject(claims) {
+		return ErrInvalidClaims
+	}
 	for _, d := range dest {
 		if err := json.Unmarshal(claims, d); err != nil {
 			return err
@@ -194,6 +201,19 @@ func ParseSignedAndEncrypted(s string,
 		enc:                        enc,
 		Headers:                    []jose.Header{enc.Header},
 	}, nil
+}
+
+func isJSONObject(data []byte) bool {
+	for _, c := range data {
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			continue
+		}
+
+		return c == '{'
+	}
+
+	return false
 }
 
 func isNestedContentType(v any) bool {

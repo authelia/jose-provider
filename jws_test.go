@@ -831,6 +831,32 @@ func TestInvalidHMACKeySize(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidKeySize)
 }
 
+// RFC 7515 Section 5.2 step 3.
+func TestParseSignedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) {
+	for _, protected := range []string{"", "null", " null ", "[]", `"alg"`, "1", "true"} {
+		t.Run(protected, func(t *testing.T) {
+			b64 := base64.RawURLEncoding.EncodeToString([]byte(protected))
+
+			inputs := map[string]string{
+				"Flattened": `{"protected":"` + b64 + `","header":{"alg":"HS256"},"payload":"cGF5bG9hZA","signature":"AAAA"}`,
+				"General":   `{"payload":"cGF5bG9hZA","signatures":[{"protected":"` + b64 + `","header":{"alg":"HS256"},"signature":"AAAA"}]}`,
+			}
+
+			for name, input := range inputs {
+				if _, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256}); err == nil {
+					t.Errorf("%s: ParseSignedJSON accepted a protected header of %s", name, protected)
+				}
+			}
+		})
+	}
+
+	b64 := base64.RawURLEncoding.EncodeToString([]byte(` {"alg":"HS256"} `))
+
+	if _, err := ParseSignedJSON(`{"protected":"`+b64+`","payload":"cGF5bG9hZA","signature":"AAAA"}`, []SignatureAlgorithm{HS256}); err != nil {
+		t.Errorf("ParseSignedJSON rejected a protected header object surrounded by whitespace: %v", err)
+	}
+}
+
 func BenchmarkParseSignedCompat(b *testing.B) {
 	raw := `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJpc3N1ZXIiLCJzdWIiOiJzdWJqZWN0In0.OFD0iVfPczqWBA_TRi1jGB5PF699eekcHt4D6qNoimc`
 

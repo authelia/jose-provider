@@ -99,7 +99,7 @@ func TestFullParseJWE(t *testing.T) {
 		// Flattened serialization, single recipient
 		"{\"protected\":\"eyJhbGciOiJYWVoiLCJlbmMiOiJYWVoifQo\",\"encrypted_key\":\"QUJD\",\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
 		// Unflattened serialization, single recipient
-		"{\"protected\":\"\",\"unprotected\":{\"enc\":\"XYZ\"},\"recipients\":[{\"header\":{\"alg\":\"XYZ\"},\"encrypted_key\":\"QUJD\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
+		"{\"unprotected\":{\"enc\":\"XYZ\"},\"recipients\":[{\"header\":{\"alg\":\"XYZ\"},\"encrypted_key\":\"QUJD\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
 	}
 
 	for i := range successes {
@@ -136,7 +136,9 @@ func TestFullParseJWE(t *testing.T) {
 		// Missing alg header
 		"{\"protected\":\"eyJlbmMiOiJYWVoifQ\",\"encrypted_key\":\"QUJD\",\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
 		// Unflattened serialization, single recipient, invalid encrypted_key
-		"{\"protected\":\"\",\"recipients\":[{\"header\":{\"alg\":\"XYZ\", \"enc\":\"XYZ\"},\"encrypted_key\":\"###\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
+		"{\"recipients\":[{\"header\":{\"alg\":\"XYZ\", \"enc\":\"XYZ\"},\"encrypted_key\":\"###\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
+		// Unflattened serialization, single recipient, empty protected header
+		"{\"protected\":\"\",\"unprotected\":{\"enc\":\"XYZ\"},\"recipients\":[{\"header\":{\"alg\":\"XYZ\"},\"encrypted_key\":\"QUJD\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
 		// Unflattened serialization, single recipient, missing alg
 		"{\"protected\":\"eyJhbGciOiJYWVoifQ\",\"recipients\":[{\"encrypted_key\":\"QUJD\"}],\"iv\":\"QUJD\",\"ciphertext\":\"QUJD\",\"tag\":\"QUJD\"}",
 	}
@@ -393,6 +395,21 @@ func TestJWEDecryptWithoutProtectedHeader(t *testing.T) {
 	}
 	if !bytes.Equal(decrypted, plaintext) {
 		t.Fatalf("DecryptMulti plaintext = %q, want %q", decrypted, plaintext)
+	}
+}
+
+// RFC 7516 Section 5.2 step 3.
+func TestParseEncryptedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) {
+	for _, protected := range []string{"", "null", " null ", "[]", `"alg"`, "1", "true"} {
+		t.Run(protected, func(t *testing.T) {
+			b64 := base64.RawURLEncoding.EncodeToString([]byte(protected))
+			input := `{"protected":"` + b64 + `","unprotected":{"alg":"dir","enc":"A128GCM"},` +
+				`"iv":"AAAAAAAAAAAAAAAA","ciphertext":"AAAA","tag":"AAAAAAAAAAAAAAAAAAAAAA"}`
+
+			if _, err := ParseEncryptedJSON(input, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM}); err == nil {
+				t.Errorf("ParseEncryptedJSON accepted a protected header of %s", protected)
+			}
+		})
 	}
 }
 
