@@ -107,6 +107,49 @@ func TestInvalidAlgorithmsRSA(t *testing.T) {
 	}
 }
 
+// RFC 7518 Section 3.5.
+func TestRSAPSSVerifyRequiresSaltLengthEqualToHash(t *testing.T) {
+	verifier := &rsaEncrypterVerifier{publicKey: &rsaTestKey.PublicKey}
+	payload := []byte("payload")
+
+	testCases := []struct {
+		alg  SignatureAlgorithm
+		hash crypto.Hash
+	}{
+		{PS256, crypto.SHA256},
+		{PS384, crypto.SHA384},
+		{PS512, crypto.SHA512},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.alg), func(t *testing.T) {
+			hasher := tc.hash.New()
+			hasher.Write(payload)
+			hashed := hasher.Sum(nil)
+
+			for _, saltLength := range []int{rsa.PSSSaltLengthAuto, 1, tc.hash.Size() - 1, tc.hash.Size() + 1} {
+				sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: saltLength})
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if err = verifier.verifyPayload(payload, sig, tc.alg); err == nil {
+					t.Errorf("verifyPayload accepted a salt length of %d", saltLength)
+				}
+			}
+
+			sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: tc.hash.Size()})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
+				t.Errorf("verifyPayload rejected a salt the size of the hash: %v", err)
+			}
+		})
+	}
+}
+
 type failingKeyGenerator struct{}
 
 func (ctx failingKeyGenerator) keySize() int {
