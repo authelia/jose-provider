@@ -97,6 +97,67 @@ func TestCompressionError(t *testing.T) {
 	}
 }
 
+// RFC 7516 Section 5.1 and RFC 7518 Sections 4.6.1.1, 4.7.1 and 4.8.1.
+func TestEncryptRejectsExtraHeadersTheOperationDetermines(t *testing.T) {
+	kek := bytes.Repeat([]byte{1}, 16)
+	password := []byte("password")
+
+	testCases := []struct {
+		name      string
+		recipient Recipient
+		header    HeaderKey
+	}{
+		{"ECDHESEphemeralKey", Recipient{Algorithm: ECDH_ES, Key: &ecTestKey256.PublicKey}, headerEPK},
+		{"ECDHESKeyWrapEphemeralKey", Recipient{Algorithm: ECDH_ES_A128KW, Key: &ecTestKey256.PublicKey}, headerEPK},
+		{"PBES2Count", Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: 1000}, headerP2C},
+		{"PBES2Salt", Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: 1000}, headerP2S},
+		{"GCMKeyWrapIV", Recipient{Algorithm: A128GCMKW, Key: kek}, headerIV},
+		{"GCMKeyWrapTag", Recipient{Algorithm: A128GCMKW, Key: kek}, headerTag},
+		{"RecipientKeyID", Recipient{Algorithm: A128KW, Key: kek, KeyID: "recipient"}, headerKeyID},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encrypter, err := NewEncrypter(A128GCM, tc.recipient, (&EncrypterOptions{}).WithHeader(tc.header, "AAAAAAAAAAAAAAAA"))
+			if err != nil {
+				if !errors.Is(err, ErrReservedHeaderParameter) {
+					t.Fatalf("NewEncrypter: got %v, want %v", err, ErrReservedHeaderParameter)
+				}
+
+				return
+			}
+
+			if _, err = encrypter.Encrypt([]byte("payload")); !errors.Is(err, ErrReservedHeaderParameter) {
+				t.Errorf("Encrypt: got %v, want %v", err, ErrReservedHeaderParameter)
+			}
+		})
+	}
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: kek}, (&EncrypterOptions{}).WithHeader(headerKeyID, "caller"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := encrypter.Encrypt([]byte("payload"))
+	if err != nil {
+		t.Fatalf("Encrypt with a caller kid and no recipient kid: %v", err)
+	}
+
+	serialized, err := obj.CompactSerialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if parsed.Header.KeyID != "caller" {
+		t.Errorf("kid = %q, want %q", parsed.Header.KeyID, "caller")
+	}
+}
+
 func RoundtripJWE(keyAlg KeyAlgorithm, encAlg ContentEncryption, compressionAlg CompressionAlgorithm, serializer func(*JSONWebEncryption) (string, error), corrupter func(*JSONWebEncryption) bool, aad []byte, encryptionKey any, decryptionKey any) error {
 	var rcpt Recipient
 	switch keyAlg {
