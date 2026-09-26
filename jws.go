@@ -116,6 +116,18 @@ func checkB64Critical(protected *rawHeader) error {
 	return ErrB64NotCritical
 }
 
+func checkUnprotectedB64(header *rawHeader) error {
+	if header == nil {
+		return nil
+	}
+
+	if _, ok := (*header)[headerB64]; ok {
+		return errors.New("go-jose/go-jose: b64 header parameter must be in the protected header")
+	}
+
+	return nil
+}
+
 // resolvedPayload wraps payload octets whose encoding has already been resolved.
 func resolvedPayload(payload []byte) *rawPayload {
 	return &rawPayload{resolved: payload, isResolved: true}
@@ -397,6 +409,10 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 			return nil, ErrUnprotectedNonce
 		}
 
+		if err := checkUnprotectedB64(parsed.Header); err != nil {
+			return nil, err
+		}
+
 		signature.header = parsed.Header
 
 		if err := checkDisjoint(signature.protected, signature.header); err != nil {
@@ -486,6 +502,10 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 		// Check that there is not a nonce in the unprotected header
 		if sig.Header != nil && sig.Header.getNonce() != "" {
 			return nil, ErrUnprotectedNonce
+		}
+
+		if err := checkUnprotectedB64(sig.Header); err != nil {
+			return nil, err
 		}
 
 		// Assign before the headers below are read, otherwise the per-signature
