@@ -161,6 +161,12 @@ func (k JSONWebKey) MarshalJSON() ([]byte, error) {
 		raw.Alg = k.Algorithm
 	}
 
+	if len(k.Certificates) > 0 {
+		if err = checkCertificateKey(k.Key, k.Certificates[0]); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, cert := range k.Certificates {
 		raw.X5c = append(raw.X5c, base64.StdEncoding.EncodeToString(cert.Raw))
 	}
@@ -492,6 +498,10 @@ func ecThumbprintInput(curve elliptic.Curve, x, y *big.Int) (string, error) {
 		return "", errors.New("go-jose/go-jose: invalid elliptic key (too large)")
 	}
 
+	if _, err = (&ecdsa.PublicKey{Curve: curve, X: x, Y: y}).ECDH(); err != nil {
+		return "", errors.New("go-jose/go-jose: invalid elliptic key, X/Y are not on declared curve")
+	}
+
 	return fmt.Sprintf(ecThumbprintTemplate, crv,
 		newFixedSizeBuffer(x.Bytes(), coordLength).base64(),
 		newFixedSizeBuffer(y.Bytes(), coordLength).base64()), nil
@@ -537,14 +547,26 @@ func (k *JSONWebKey) Thumbprint(hash crypto.Hash) ([]byte, error) {
 	case *ecdsa.PublicKey:
 		input, err = ecThumbprintInput(key.Curve, key.X, key.Y)
 	case *ecdsa.PrivateKey:
+		if key.D != nil && !ecPrivateKeyMatches(key) {
+			return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
+		}
+
 		input, err = ecThumbprintInput(key.Curve, key.X, key.Y)
 	case *rsa.PublicKey:
 		input, err = rsaThumbprintInput(key.N, key.E)
 	case *rsa.PrivateKey:
+		if err = checkRSAPrivateParameters(key); err != nil {
+			return nil, err
+		}
+
 		input, err = rsaThumbprintInput(key.N, key.E)
 	case ed25519.PrivateKey:
 		if len(key) != ed25519.PrivateKeySize {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid ed25519 private key, expected %d bytes, got %d", ed25519.PrivateKeySize, len(key))
+		}
+
+		if !ed25519HalvesMatch(key) {
+			return nil, errors.New("go-jose/go-jose: invalid ed25519 private key, public half does not match the seed")
 		}
 
 		input, err = edThumbprintInput(ed25519.PublicKey(key[32:]))
@@ -635,8 +657,14 @@ func (k *JSONWebKey) Valid() bool {
 		if key == nil || key.Curve == nil || key.X == nil || key.Y == nil {
 			return false
 		}
+		if _, err := key.ECDH(); err != nil {
+			return false
+		}
 	case *ecdsa.PrivateKey:
 		if key == nil || key.Curve == nil || key.X == nil || key.Y == nil || key.D == nil {
+			return false
+		}
+		if !ecPrivateKeyMatches(key) {
 			return false
 		}
 	case *rsa.PublicKey:
@@ -647,12 +675,15 @@ func (k *JSONWebKey) Valid() bool {
 		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
 			return false
 		}
+		if checkRSAPrivateParameters(key) != nil {
+			return false
+		}
 	case ed25519.PublicKey:
 		if len(key) != 32 {
 			return false
 		}
 	case ed25519.PrivateKey:
-		if len(key) != 64 {
+		if len(key) != 64 || !ed25519HalvesMatch(key) {
 			return false
 		}
 	default:
@@ -781,6 +812,10 @@ func fromEcPublicKey(pub *ecdsa.PublicKey) (*rawJSONWebKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC key (X/Y too large)")
 	}
 
+	if _, err = pub.ECDH(); err != nil {
+		return nil, errors.New("go-jose/go-jose: invalid EC key, X/Y are not on declared curve")
+	}
+
 	key := &rawJSONWebKey{
 		Kty: "EC",
 		Crv: name,
@@ -896,9 +931,43 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 	return rv, err
 }
 
+func ed25519HalvesMatch(ed ed25519.PrivateKey) bool {
+	return bytes.Equal(ed25519.NewKeyFromSeed(ed.Seed())[32:], ed[32:])
+}
+
+func checkCertificateKey(key any, cert *x509.Certificate) error {
+	var pub any
+
+	switch key := key.(type) {
+	case []byte:
+		return errors.New("go-jose/go-jose: invalid JWK, a symmetric key cannot have a certificate chain")
+	case *ecdsa.PrivateKey:
+		pub = &key.PublicKey
+	case *rsa.PrivateKey:
+		pub = &key.PublicKey
+	case ed25519.PrivateKey:
+		pub = key.Public()
+	default:
+		var ok bool
+		if pub, ok = mldsaPublicOf(key); !ok {
+			pub = key
+		}
+	}
+
+	if eq, ok := pub.(interface{ Equal(crypto.PublicKey) bool }); !ok || !eq.Equal(cert.PublicKey) {
+		return errors.New("go-jose/go-jose: invalid JWK, public keys in key and x5c fields do not match")
+	}
+
+	return nil
+}
+
 func fromEdPrivateKey(ed ed25519.PrivateKey) (*rawJSONWebKey, error) {
 	if len(ed) != ed25519.PrivateKeySize {
 		return nil, errors.New("go-jose/go-jose: invalid Ed25519 private key length")
+	}
+
+	if !ed25519HalvesMatch(ed) {
+		return nil, errors.New("go-jose/go-jose: invalid Ed25519 private key, public half does not match the seed")
 	}
 
 	raw, err := fromEdPublicKey(ed.Public().(ed25519.PublicKey))
@@ -911,6 +980,32 @@ func fromEdPrivateKey(ed ed25519.PrivateKey) (*rawJSONWebKey, error) {
 	return raw, nil
 }
 
+func checkRSAPrivateParameters(key *rsa.PrivateKey) error {
+	if key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (d or a prime missing)")
+	}
+
+	if key.D.Sign() <= 0 || slices.ContainsFunc(key.Primes, func(p *big.Int) bool { return p.Sign() <= 0 }) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (d and primes must be positive)")
+	}
+
+	dp, dq, qi := key.Precomputed.Dp, key.Precomputed.Dq, key.Precomputed.Qinv
+
+	if (dp == nil) != (dq == nil) || (dp == nil) != (qi == nil) {
+		return errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
+	}
+
+	if dp != nil && (dp.Sign() <= 0 || dq.Sign() <= 0 || qi.Sign() <= 0) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (dp, dq and qi must be positive)")
+	}
+
+	if err := key.Validate(); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid RSA private key: %w", err)
+	}
+
+	return nil
+}
+
 func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
 	if rsa == nil {
 		return nil, errors.New("go-jose/go-jose: invalid RSA private key (nil)")
@@ -920,9 +1015,11 @@ func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
 		return nil, ErrUnsupportedKeyType
 	}
 
-	if rsa.D == nil || rsa.Primes[0] == nil || rsa.Primes[1] == nil {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key (d or a prime missing)")
+	if err := checkRSAPrivateParameters(rsa); err != nil {
+		return nil, err
 	}
+
+	dp, dq, qi := rsa.Precomputed.Dp, rsa.Precomputed.Dq, rsa.Precomputed.Qinv
 
 	raw, err := fromRsaPublicKey(&rsa.PublicKey)
 	if err != nil {
@@ -933,14 +1030,10 @@ func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
 	raw.P = newBuffer(rsa.Primes[0].Bytes())
 	raw.Q = newBuffer(rsa.Primes[1].Bytes())
 
-	if rsa.Precomputed.Dp != nil {
-		raw.Dp = newBuffer(rsa.Precomputed.Dp.Bytes())
-	}
-	if rsa.Precomputed.Dq != nil {
-		raw.Dq = newBuffer(rsa.Precomputed.Dq.Bytes())
-	}
-	if rsa.Precomputed.Qinv != nil {
-		raw.Qi = newBuffer(rsa.Precomputed.Qinv.Bytes())
+	if dp != nil {
+		raw.Dp = newBuffer(dp.Bytes())
+		raw.Dq = newBuffer(dq.Bytes())
+		raw.Qi = newBuffer(qi.Bytes())
 	}
 
 	return raw, nil
@@ -1032,9 +1125,27 @@ func fromEcPrivateKey(ec *ecdsa.PrivateKey) (*rawJSONWebKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key")
 	}
 
+	if !ecPrivateKeyMatches(ec) {
+		return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
+	}
+
 	raw.D = newFixedSizeBuffer(ec.D.Bytes(), dSize(ec.PublicKey.Curve))
 
 	return raw, nil
+}
+
+func ecPrivateKeyMatches(priv *ecdsa.PrivateKey) bool {
+	pub, err := priv.PublicKey.ECDH()
+	if err != nil {
+		return false
+	}
+
+	ecdhKey, err := priv.ECDH()
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(ecdhKey.PublicKey().Bytes(), pub.Bytes())
 }
 
 // dSize returns the size in octets for the "d" member of an elliptic curve
@@ -1056,6 +1167,10 @@ func dSize(curve elliptic.Curve) int {
 }
 
 func fromSymmetricKey(key []byte) (*rawJSONWebKey, error) {
+	if len(key) == 0 {
+		return nil, errors.New("go-jose/go-jose: invalid OCT (symmetric) key, key is empty")
+	}
+
 	return &rawJSONWebKey{
 		Kty: "oct",
 		K:   newBuffer(key),
