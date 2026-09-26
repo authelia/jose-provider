@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/fips140"
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
@@ -130,7 +131,20 @@ func TestRSAPSSVerifyRequiresSaltLengthEqualToHash(t *testing.T) {
 			for _, saltLength := range []int{rsa.PSSSaltLengthAuto, 1, tc.hash.Size() - 1, tc.hash.Size() + 1} {
 				sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: saltLength})
 				if err != nil {
+					if fips140.Enabled() && saltLength > tc.hash.Size() {
+						continue
+					}
+
 					t.Fatal(err)
+				}
+
+				// In FIPS 140 mode crypto/rsa caps the automatic salt length at the size of the hash.
+				if fips140.Enabled() && saltLength == rsa.PSSSaltLengthAuto {
+					if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
+						t.Errorf("verifyPayload rejected the automatic salt length in FIPS 140 mode: %v", err)
+					}
+
+					continue
 				}
 
 				if err = verifier.verifyPayload(payload, sig, tc.alg); err == nil {
