@@ -697,14 +697,16 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 // Automatically decompresses plaintext, but returns an error if the decompressed
 // data would be >250kB or >10x the size of the compressed data, whichever is larger.
 func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byte, error) {
-	globalHeaders := obj.mergedHeaders(nil)
-
 	err := obj.checkNoCritical()
 	if err != nil {
 		return -1, Header{}, nil, err
 	}
 
-	encryption := globalHeaders.getEncryption()
+	if len(obj.recipients) == 0 {
+		return -1, Header{}, nil, errors.New("go-jose/go-jose: no recipients")
+	}
+
+	encryption := obj.mergedHeaders(&obj.recipients[0]).getEncryption()
 	cipher := getContentCipher(encryption)
 	if cipher == nil {
 		return -1, Header{}, nil, fmt.Errorf("go-jose/go-jose: unsupported enc value '%s'", string(encryption))
@@ -725,10 +727,6 @@ func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byt
 	index := -1
 	var plaintext []byte
 	var headers rawHeader
-
-	if len(obj.recipients) == 0 {
-		return -1, Header{}, nil, errors.New("go-jose/go-jose: no recipients")
-	}
 
 	var (
 		usable  bool

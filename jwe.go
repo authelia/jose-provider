@@ -349,6 +349,8 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		}
 	}
 
+	var encryption ContentEncryption
+
 	for i, recipient := range obj.recipients {
 		if err := checkDisjoint(obj.protected, obj.unprotected, recipient.header); err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: recipient %d: %w", i, err)
@@ -358,8 +360,14 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		if headers.getAlgorithm() == "" {
 			return nil, fmt.Errorf(`go-jose/go-jose: recipient %d: missing header "alg"`, i)
 		}
-		if headers.getEncryption() == "" {
+		enc := headers.getEncryption()
+		if enc == "" {
 			return nil, fmt.Errorf(`go-jose/go-jose: recipient %d: missing header "enc"`, i)
+		}
+		if i == 0 {
+			encryption = enc
+		} else if enc != encryption {
+			return nil, fmt.Errorf(`go-jose/go-jose: recipient %d: header "enc" differs from recipient 0`, i)
 		}
 		err := validateAlgEnc(headers, keyEncryptionAlgorithms, contentEncryption)
 		if err != nil {
