@@ -1072,6 +1072,10 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 		jwks = jwksType
 	default:
 		// If the specified key is not a JWKS, return as is.
+		if err := checkSuitableJWK(key, use, header.Algorithm); err != nil {
+			return nil, err
+		}
+
 		return []any{key}, nil
 	}
 
@@ -1097,6 +1101,23 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 	}
 
 	return keys, nil
+}
+
+func checkSuitableJWK(key any, use, alg string) error {
+	var jwk *JSONWebKey
+
+	switch k := key.(type) {
+	case JSONWebKey:
+		jwk = &k
+	case *JSONWebKey:
+		jwk = k
+	}
+
+	if jwk == nil || jwk.suitableFor(use, alg) {
+		return nil
+	}
+
+	return ErrUnsuitableKey
 }
 
 // suitableFor reports whether this key may be used for the given purpose ("sig" or "enc") and JOSE algorithm.

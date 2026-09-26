@@ -112,6 +112,10 @@ var (
 	// determines for itself, and which it would therefore have to either ignore or contradict.
 	ErrReservedHeaderParameter = errors.New("go-jose/go-jose: reserved header parameter")
 
+	// ErrUnsuitableKey indicates a JWK was given for an operation its "use" or "alg" member, RFC 7517 Sections 4.2
+	// and 4.4, excludes it from.
+	ErrUnsuitableKey = errors.New("go-jose/go-jose: key use or algorithm does not permit the operation")
+
 	// ErrPBES2WorkLimit indicates decrypting a JWE would take more PBES2 key derivation than one message is
 	// allowed. The sender chooses "p2c" for every recipient, and each recipient, and each candidate key for it,
 	// costs a derivation, so the total is bounded as well as the count of each recipient.
