@@ -361,6 +361,9 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		if headers.getEncryption() == "" {
 			return nil, fmt.Errorf(`go-jose/go-jose: recipient %d: missing header "enc"`, i)
 		}
+		if i > 0 && headers.getEncryption() != obj.mergedHeaders(&obj.recipients[0]).getEncryption() {
+			return nil, fmt.Errorf(`go-jose/go-jose: recipient %d: header "enc" differs from recipient 0`, i)
+		}
 		err := validateAlgEnc(headers, keyEncryptionAlgorithms, contentEncryption)
 		if err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: recipient %d: %s", i, err)

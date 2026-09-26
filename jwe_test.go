@@ -18,6 +18,7 @@ package jose
 
 import (
 	"bytes"
+	"crypto/aes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -36,6 +37,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	josecipher "authelia.com/provider/jose/cipher"
 )
 
 func TestParseEmptyEncrypted(t *testing.T) {
@@ -410,6 +413,40 @@ func TestParseEncryptedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.
 				t.Errorf("ParseEncryptedJSON accepted a protected header of %s", protected)
 			}
 		})
+	}
+}
+
+// RFC 7516 Section 7.2.1.
+func TestDecryptMultiReadsEncFromTheRecipientHeader(t *testing.T) {
+	key := bytes.Repeat([]byte{1}, 16)
+
+	testCases := map[string][]ContentEncryption{
+		"Flattened": {A128GCM},
+		"General":   {A128GCM, A128GCM},
+	}
+
+	for name, encs := range testCases {
+		t.Run(name, func(t *testing.T) {
+			input := jweWithEncPerRecipient(t, key, []byte("payload"), encs...)
+
+			obj, err := ParseEncryptedJSON(input, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
+			if err != nil {
+				t.Fatalf("ParseEncryptedJSON: %v", err)
+			}
+
+			index, _, plaintext, err := obj.DecryptMulti(key)
+			if err != nil || index != 0 || string(plaintext) != "payload" {
+				t.Fatalf("DecryptMulti: got %d, %q, %v", index, plaintext, err)
+			}
+		})
+	}
+}
+
+func TestParseEncryptedJSONRejectsRecipientsWhichDisagreeOnEnc(t *testing.T) {
+	input := jweWithEncPerRecipient(t, bytes.Repeat([]byte{1}, 16), []byte("payload"), A128GCM, A256GCM)
+
+	if _, err := ParseEncryptedJSON(input, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM, A256GCM}); err == nil {
+		t.Error("ParseEncryptedJSON accepted recipients which disagree on enc")
 	}
 }
 
@@ -1272,4 +1309,45 @@ func TestParseEncryptedRejectsInvalidCompression(t *testing.T) {
 			}
 		})
 	}
+}
+
+func jweWithEncPerRecipient(t *testing.T, key, plaintext []byte, encs ...ContentEncryption) string {
+	t.Helper()
+
+	cek := bytes.Repeat([]byte{2}, getContentCipher(encs[0]).keySize())
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jek, err := josecipher.KeyWrap(block, cek)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj := &JSONWebEncryption{}
+
+	for _, enc := range encs {
+		header := &rawHeader{}
+
+		if err = header.set(headerAlgorithm, A128KW); err != nil {
+			t.Fatal(err)
+		}
+
+		if err = header.set(headerEncryption, enc); err != nil {
+			t.Fatal(err)
+		}
+
+		obj.recipients = append(obj.recipients, recipientInfo{header: header, encryptedKey: jek})
+	}
+
+	parts, err := getContentCipher(encs[0]).encrypt(cek, obj.computeAuthData(), plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj.iv, obj.ciphertext, obj.tag = parts.iv, parts.ciphertext, parts.tag
+
+	return obj.FullSerialize()
 }
