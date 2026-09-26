@@ -428,6 +428,36 @@ func TestSignRefusesToEmbedAPrivateJWK(t *testing.T) {
 	}
 }
 
+func TestSignChecksExtraHeadersChangedAfterNewSigner(t *testing.T) {
+	testCases := []struct {
+		name    string
+		header  HeaderKey
+		value   any
+		wantErr error
+	}{
+		{"PrivateJWK", headerJWK, JSONWebKey{Key: ecTestKey256}, ErrNotPublic},
+		{"Algorithm", headerAlgorithm, "none", ErrReservedHeaderParameter},
+		{"Base64WithoutCritical", headerB64, false, ErrB64NotCritical},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := (&SignerOptions{}).WithHeader("x", 1)
+
+			signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: ecTestKey256}, opts)
+			if err != nil {
+				t.Fatalf("NewSigner: %v", err)
+			}
+
+			opts.ExtraHeaders[tc.header] = tc.value
+
+			if _, err = signer.Sign([]byte("payload")); !errors.Is(err, tc.wantErr) {
+				t.Errorf("Sign: got %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:

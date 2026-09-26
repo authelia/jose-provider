@@ -187,6 +187,26 @@ func checkExtraJWK(extra map[HeaderKey]any) error {
 	return nil
 }
 
+func (ctx *genericSigner) checkExtraHeaders() error {
+	// RFC 7515 Section 4.1.1 makes "alg" the parameter a recipient trusts to pick its verification, and it
+	// follows from the signing key rather than from the caller.
+	if err := checkExtraHeaders(ctx.extraHeaders, headerAlgorithm); err != nil {
+		return err
+	}
+
+	if ctx.embedJWK {
+		if err := checkExtraHeaders(ctx.extraHeaders, headerJWK); err != nil {
+			return err
+		}
+	}
+
+	if err := checkExtraB64Critical(ctx.extraHeaders); err != nil {
+		return err
+	}
+
+	return checkExtraJWK(ctx.extraHeaders)
+}
+
 type payloadSigner interface {
 	signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error)
 }
@@ -238,23 +258,7 @@ func NewMultiSigner(sigs []SigningKey, opts *SignerOptions) (Signer, error) {
 		signer.embedJWK = opts.EmbedJWK
 		signer.extraHeaders = opts.ExtraHeaders
 
-		// RFC 7515 Section 4.1.1 makes "alg" the parameter a recipient trusts to pick its verification, and it
-		// follows from the signing key rather than from the caller.
-		if err := checkExtraHeaders(signer.extraHeaders, headerAlgorithm); err != nil {
-			return nil, err
-		}
-
-		if signer.embedJWK {
-			if err := checkExtraHeaders(signer.extraHeaders, headerJWK); err != nil {
-				return nil, err
-			}
-		}
-
-		if err := checkExtraB64Critical(signer.extraHeaders); err != nil {
-			return nil, err
-		}
-
-		if err := checkExtraJWK(signer.extraHeaders); err != nil {
+		if err := signer.checkExtraHeaders(); err != nil {
 			return nil, err
 		}
 	}
@@ -402,6 +406,10 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 				return nil, fmt.Errorf("go-jose/go-jose: Error generating nonce: %v", err)
 			}
 			protected[headerNonce] = nonce
+		}
+
+		if err := ctx.checkExtraHeaders(); err != nil {
+			return nil, err
 		}
 
 		for k, v := range ctx.extraHeaders {
