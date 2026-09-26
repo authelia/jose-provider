@@ -102,6 +102,21 @@ Expand a compact message to JSON format in a file.
   > jose-util expand --format JWS --out expanded.json && cat expanded.json
   {"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQK","protected":"eyJhbGciOiJFUzM4NCJ9","signature":"QPU35XY913Im7ZEaN2yHykfbtPqjHZvYp-lV8OcTAJZs67bJFSdTSkQhQWE9ch6tvYrj_7py6HKaWVFLll_s_Rm6bmwq3JszsHrIvFFm1NydruYHhvAnx7rjYiqwOu0W"}
 
+Expanding a message in an unknown format is an error.
+
+  $ echo "eyJhbGciOiJFUzM4NCJ9.TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQK.QPU35XY913Im7ZEaN2yHykfbtPqjHZvYp-lV8OcTAJZs67bJFSdTSkQhQWE9ch6tvYrj_7py6HKaWVFLll_s_Rm6bmwq3JszsHrIvFFm1NydruYHhvAnx7rjYiqwOu0W" |
+  > jose-util expand --format XYZ
+  error running command: unknown format "XYZ", expected JWS or JWE
+  [1]
+
+Decrypting with a key which cannot be read is an error.
+
+  $ echo "invalid" > invalid.key
+  $ echo "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..AAAAAAAAAAAAAAAA.AAAA.AAAAAAAAAAAAAAAAAAAAAA" |
+  > jose-util decrypt --key invalid.key
+  error running command: unable to read private key: * (glob)
+  [1]
+
 Generate signing keys in JWK format.
 
   $ jose-util generate-key --use enc --alg RSA-OAEP --kid test && ls jwk-enc-test-*.json

@@ -50,6 +50,8 @@ func expand(args []string) error {
 		if err == nil {
 			serialized = jws.FullSerialize()
 		}
+	default:
+		return fmt.Errorf("unknown format %q, expected JWS or JWE", *expandFormatFlag)
 	}
 
 	if err != nil {

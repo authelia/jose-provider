@@ -25,7 +25,6 @@ import (
 )
 
 var allKeyAlgorithms = []jose.KeyAlgorithm{
-	jose.ED25519,
 	jose.RSA1_5,
 	jose.RSA_OAEP,
 	jose.RSA_OAEP_256,
@@ -134,7 +133,7 @@ func decrypt(args []string) error {
 
 	priv, err := generator.LoadPrivateKey(bytes)
 	if err != nil {
-		return fmt.Errorf("unable to read private key %s: %w", priv, err)
+		return fmt.Errorf("unable to read private key: %w", err)
 	}
 
 	input, err := readInput(*inFile)
@@ -156,8 +155,8 @@ func decrypt(args []string) error {
 }
 
 func sign(args []string) error {
-	fs := flag.NewFlagSet("encrypt", flag.ExitOnError)
-	signAlgFlag := fs.String("alg", "", "Key management algorithm (e.g. RSA-OAEP)")
+	fs := flag.NewFlagSet("sign", flag.ExitOnError)
+	signAlgFlag := fs.String("alg", "", "Signature algorithm (e.g. RS256)")
 	signFullFlag := fs.Bool("full", false, "Use JSON Serialization format (instead of compact)")
 	registerCommon(fs)
 	fs.Parse(args)
