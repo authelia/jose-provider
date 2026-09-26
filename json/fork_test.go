@@ -242,7 +242,11 @@ func TestForkIntOrFloatKeepsOutOfRangeWholeNumbersAsFloat(t *testing.T) {
 		{"large positive exponent", `1e19`, float64(1e19)},
 		{"large negative exponent", `-1e19`, float64(-1e19)},
 		{"far beyond range", `1e300`, float64(1e300)},
+		{"just below min int64", `-9223372036854775809`, float64(-9223372036854775809)},
+		{"just below min int64 in exponent form", `-9.223372036854775809e18`, float64(-9223372036854775809)},
+		{"fraction just above min int64", `-9223372036854775807.5`, float64(-9223372036854775807.5)},
 		{"min int64 in exponent form", `-9.223372036854775808e18`, int64(math.MinInt64)},
+		{"min int64 in fractional form", `-9223372036854775808.0`, int64(math.MinInt64)},
 		{"min int64", `-9223372036854775808`, int64(math.MinInt64)},
 	}
 
