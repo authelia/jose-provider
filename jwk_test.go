@@ -825,6 +825,7 @@ func TestMarshalECPrivateKeyRejectsDOutOfRange(t *testing.T) {
 		{"TooLong", new(big.Int).Lsh(big.NewInt(1), 300)},
 		{"Zero", big.NewInt(0)},
 		{"Negative", new(big.Int).Neg(ecTestKey256.D)},
+		{"Order", elliptic.P256().Params().N},
 	}
 
 	for _, tc := range testCases {

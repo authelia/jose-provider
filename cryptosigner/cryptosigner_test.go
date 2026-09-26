@@ -71,8 +71,17 @@ func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
 	}
 
 	one := big.NewInt(1)
+	order := elliptic.P256().Params().N
+
+	extraInteger, err := asn1.Marshal(struct{ R, S, T *big.Int }{one, one, one})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	testCases := map[string][]byte{
+		"RIsOrder":      der(order, one),
+		"SIsOrder":      der(one, order),
+		"ExtraInteger":  extraInteger,
 		"RTooLong":      der(new(big.Int).Lsh(one, 256), one),
 		"STooLong":      der(one, new(big.Int).Lsh(one, 256)),
 		"RNegative":     der(big.NewInt(-1), one),

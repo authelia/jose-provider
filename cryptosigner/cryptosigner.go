@@ -20,6 +20,7 @@
 package cryptosigner
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -148,6 +149,15 @@ func (s *cryptoSigner) SignPayload(payload []byte, alg jose.SignatureAlgorithm) 
 		}
 
 		if len(rest) != 0 || sig.R.Sign() <= 0 || sig.S.Sign() <= 0 || sig.R.BitLen() > byteLen*8 || sig.S.BitLen() > byteLen*8 {
+			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
+		}
+
+		if canonical, err := asn1.Marshal(sig); err != nil || !bytes.Equal(canonical, b) {
+			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
+		}
+
+		if pub, ok := s.signer.Public().(*ecdsa.PublicKey); !ok || pub == nil || pub.Curve == nil ||
+			sig.R.Cmp(pub.Curve.Params().N) >= 0 || sig.S.Cmp(pub.Curve.Params().N) >= 0 {
 			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
 		}
 
