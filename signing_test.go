@@ -564,6 +564,26 @@ func TestNewSignerRejectsInvalidCritical(t *testing.T) {
 	}
 }
 
+func TestWithCriticalAppendsToAnyExistingList(t *testing.T) {
+	key := bytes.Repeat([]byte{1}, 32)
+
+	opts := (&SignerOptions{}).WithHeader(headerCritical, []any{"ext"}).WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
+
+	if crit := opts.ExtraHeaders[headerCritical]; !reflect.DeepEqual(crit, []any{"ext", "other"}) {
+		t.Errorf("crit = %#v, want both names", crit)
+	}
+
+	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); err != nil {
+		t.Errorf("NewSigner: %v", err)
+	}
+
+	opts = (&SignerOptions{}).WithHeader(headerCritical, "ext").WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
+
+	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); !errors.Is(err, ErrInvalidCriticalHeader) {
+		t.Errorf("NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:

@@ -111,13 +111,23 @@ func (so *SignerOptions) WithType(typ ContentType) *SignerOptions {
 }
 
 // WithCritical adds the given names to the critical ("crit") header and returns
-// the updated SignerOptions.
+// the updated SignerOptions. An existing "crit" set through WithHeader as a
+// []string or a []any has the names appended to it. One of any other type is
+// left as it is, and is rejected by NewSigner as not a list of names.
 func (so *SignerOptions) WithCritical(names ...string) *SignerOptions {
-	if so.ExtraHeaders[headerCritical] == nil {
-		so.WithHeader(headerCritical, make([]string, 0, len(names)))
+	switch crit := so.ExtraHeaders[headerCritical].(type) {
+	case nil:
+		so.WithHeader(headerCritical, append(make([]string, 0, len(names)), names...))
+	case []string:
+		so.ExtraHeaders[headerCritical] = append(crit, names...)
+	case []any:
+		for _, name := range names {
+			crit = append(crit, name)
+		}
+
+		so.ExtraHeaders[headerCritical] = crit
 	}
-	crit := so.ExtraHeaders[headerCritical].([]string)
-	so.ExtraHeaders[headerCritical] = append(crit, names...)
+
 	return so
 }
 
