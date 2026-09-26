@@ -700,6 +700,15 @@ func (d *decodeState) object(v reflect.Value) error {
 	// the input whenever we detect one. See the package README.
 	keys := map[string]bool{}
 
+	// A map with integer or TextUnmarshaler keys converts each member name, and
+	// distinct names such as "1" and "01" can convert to the same key, so the
+	// converted keys are checked as well as the names. A plain string key is the
+	// name itself, which the check above already covers.
+	var mapKeys map[any]bool
+	if v.Kind() == reflect.Map && (t.Key().Kind() != reflect.String || reflect.PointerTo(t.Key()).Implements(textUnmarshalerType)) {
+		mapKeys = map[any]bool{}
+	}
+
 	for {
 		// Read opening " of string key or closing }.
 		d.scanWhile(scanSkipSpace)
@@ -854,6 +863,13 @@ func (d *decodeState) object(v reflect.Value) error {
 				}
 			}
 			if kv.IsValid() {
+				if mapKeys != nil {
+					mk := kv.Interface()
+					if mapKeys[mk] {
+						return fmt.Errorf("json: duplicate key '%s' in object", key)
+					}
+					mapKeys[mk] = true
+				}
 				v.SetMapIndex(kv, subv)
 			}
 		}

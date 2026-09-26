@@ -264,3 +264,51 @@ func TestForkIntOrFloatKeepsOutOfRangeWholeNumbersAsFloat(t *testing.T) {
 		})
 	}
 }
+
+func TestForkRejectsDuplicateConvertedMapKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		into func() any
+	}{
+		{"int keys", `{"1":"a","01":"b"}`, func() any { return &map[int]string{} }},
+		{"uint keys", `{"7":"a","007":"b"}`, func() any { return &map[uint8]string{} }},
+		{"text unmarshaler keys", `{"Alg":"a","alg":"b"}`, func() any { return &map[foldedKey]string{} }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := Unmarshal([]byte(tt.in), tt.into()); err == nil {
+				t.Fatalf("Unmarshal(%s) accepted keys which convert to the same map key", tt.in)
+			}
+		})
+	}
+
+	t.Run("distinct keys", func(t *testing.T) {
+		got := map[int]string{}
+		if err := Unmarshal([]byte(`{"1":"a","2":"b"}`), &got); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if want := (map[int]string{1: "a", 2: "b"}); !reflect.DeepEqual(got, want) {
+			t.Errorf("Unmarshal = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("existing entries", func(t *testing.T) {
+		got := map[int]string{1: "old"}
+		if err := Unmarshal([]byte(`{"1":"new"}`), &got); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if got[1] != "new" {
+			t.Errorf("Unmarshal left %q, want the decoded value to replace the existing one", got[1])
+		}
+	})
+}
+
+type foldedKey string
+
+func (k *foldedKey) UnmarshalText(text []byte) error {
+	*k = foldedKey(strings.ToLower(string(text)))
+
+	return nil
+}
