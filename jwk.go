@@ -555,6 +555,10 @@ func (k *JSONWebKey) Thumbprint(hash crypto.Hash) ([]byte, error) {
 	case *rsa.PublicKey:
 		input, err = rsaThumbprintInput(key.N, key.E)
 	case *rsa.PrivateKey:
+		if err = checkRSAPrivateParameters(key); err != nil {
+			return nil, err
+		}
+
 		input, err = rsaThumbprintInput(key.N, key.E)
 	case ed25519.PrivateKey:
 		if len(key) != ed25519.PrivateKeySize {
@@ -669,6 +673,9 @@ func (k *JSONWebKey) Valid() bool {
 		}
 	case *rsa.PrivateKey:
 		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
+			return false
+		}
+		if checkRSAPrivateParameters(key) != nil {
 			return false
 		}
 	case ed25519.PublicKey:
@@ -973,6 +980,32 @@ func fromEdPrivateKey(ed ed25519.PrivateKey) (*rawJSONWebKey, error) {
 	return raw, nil
 }
 
+func checkRSAPrivateParameters(key *rsa.PrivateKey) error {
+	if key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (d or a prime missing)")
+	}
+
+	if key.D.Sign() <= 0 || slices.ContainsFunc(key.Primes, func(p *big.Int) bool { return p.Sign() <= 0 }) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (d and primes must be positive)")
+	}
+
+	dp, dq, qi := key.Precomputed.Dp, key.Precomputed.Dq, key.Precomputed.Qinv
+
+	if (dp == nil) != (dq == nil) || (dp == nil) != (qi == nil) {
+		return errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
+	}
+
+	if dp != nil && (dp.Sign() <= 0 || dq.Sign() <= 0 || qi.Sign() <= 0) {
+		return errors.New("go-jose/go-jose: invalid RSA private key (dp, dq and qi must be positive)")
+	}
+
+	if err := key.Validate(); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid RSA private key: %w", err)
+	}
+
+	return nil
+}
+
 func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
 	if rsa == nil {
 		return nil, errors.New("go-jose/go-jose: invalid RSA private key (nil)")
@@ -982,23 +1015,11 @@ func fromRsaPrivateKey(rsa *rsa.PrivateKey) (*rawJSONWebKey, error) {
 		return nil, ErrUnsupportedKeyType
 	}
 
-	if rsa.D == nil || rsa.Primes[0] == nil || rsa.Primes[1] == nil {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key (d or a prime missing)")
-	}
-
-	if rsa.D.Sign() <= 0 || rsa.Primes[0].Sign() <= 0 || rsa.Primes[1].Sign() <= 0 {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key (d and primes must be positive)")
+	if err := checkRSAPrivateParameters(rsa); err != nil {
+		return nil, err
 	}
 
 	dp, dq, qi := rsa.Precomputed.Dp, rsa.Precomputed.Dq, rsa.Precomputed.Qinv
-
-	if (dp == nil) != (dq == nil) || (dp == nil) != (qi == nil) {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
-	}
-
-	if dp != nil && (dp.Sign() <= 0 || dq.Sign() <= 0 || qi.Sign() <= 0) {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key (dp, dq and qi must be positive)")
-	}
 
 	raw, err := fromRsaPublicKey(&rsa.PublicKey)
 	if err != nil {

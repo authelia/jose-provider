@@ -1113,17 +1113,18 @@ func TestMarshalJWKRejectsKeysUnmarshalRejects(t *testing.T) {
 	}
 
 	testCases := map[string]JSONWebKey{
-		"CertificateForAnotherKey":    {Key: &ecTestKey256.PublicKey, Certificates: []*x509.Certificate{otherCert}},
-		"CertificateForSymmetricKey":  {Key: bytes.Repeat([]byte{1}, 32), Certificates: []*x509.Certificate{otherCert}},
-		"EmptySymmetricKey":           {Key: []byte{}},
-		"NilSymmetricKey":             {Key: []byte(nil)},
-		"PartialCRTValues":            {Key: partialCRT},
-		"NegativeRSAPrivateExponent":  {Key: negativeD},
-		"MismatchedEd25519Halves":     {Key: edMismatched},
-		"ECPointNotOnCurve":           {Key: offCurve},
-		"ECPrivatePointNotOnCurve":    {Key: &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)}},
-		"NegativeECCoordinate":        {Key: negativeX},
-		"ECPrivateKeyForAnotherPoint": {Key: &ecdsa.PrivateKey{PublicKey: otherKey.PublicKey, D: ecTestKey256.D}},
+		"CertificateForAnotherKey":        {Key: &ecTestKey256.PublicKey, Certificates: []*x509.Certificate{otherCert}},
+		"CertificateForSymmetricKey":      {Key: bytes.Repeat([]byte{1}, 32), Certificates: []*x509.Certificate{otherCert}},
+		"EmptySymmetricKey":               {Key: []byte{}},
+		"NilSymmetricKey":                 {Key: []byte(nil)},
+		"PartialCRTValues":                {Key: partialCRT},
+		"NegativeRSAPrivateExponent":      {Key: negativeD},
+		"MismatchedEd25519Halves":         {Key: edMismatched},
+		"ECPointNotOnCurve":               {Key: offCurve},
+		"ECPrivatePointNotOnCurve":        {Key: &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)}},
+		"NegativeECCoordinate":            {Key: negativeX},
+		"ECPrivateKeyForAnotherPoint":     {Key: &ecdsa.PrivateKey{PublicKey: otherKey.PublicKey, D: ecTestKey256.D}},
+		"RSAPrivateExponentForAnotherKey": {Key: &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, D: new(big.Int).Add(rsaTestKey.D, big.NewInt(2)), Primes: rsaTestKey.Primes}},
 	}
 
 	for name, jwk := range testCases {
@@ -1147,10 +1148,12 @@ func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
 	offCurve := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
 
 	keys := map[string]any{
-		"MismatchedEd25519Halves":     edMismatched,
-		"ECPointNotOnCurve":           offCurve,
-		"ECPrivatePointNotOnCurve":    &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)},
-		"ECPrivateKeyForAnotherPoint": &ecdsa.PrivateKey{PublicKey: ecTestKey384.PublicKey, D: new(big.Int).Add(ecTestKey384.D, big.NewInt(1))},
+		"MismatchedEd25519Halves":         edMismatched,
+		"ECPointNotOnCurve":               offCurve,
+		"ECPrivatePointNotOnCurve":        &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)},
+		"ECPrivateKeyForAnotherPoint":     &ecdsa.PrivateKey{PublicKey: ecTestKey384.PublicKey, D: new(big.Int).Add(ecTestKey384.D, big.NewInt(1))},
+		"RSAPrivateExponentForAnotherKey": &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, D: new(big.Int).Add(rsaTestKey.D, big.NewInt(2)), Primes: rsaTestKey.Primes},
+		"RSAPartialCRTValues":             &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, D: rsaTestKey.D, Primes: rsaTestKey.Primes, Precomputed: rsa.PrecomputedValues{Dp: rsaTestKey.Precomputed.Dp}},
 	}
 
 	for name, key := range keys {
@@ -1678,7 +1681,8 @@ func TestJWKValid(t *testing.T) {
 		{&rsa.PublicKey{N: big.NewInt(-1), E: 1}, false},
 		{&rsa.PublicKey{N: big.NewInt(1), E: -1}, false},
 		{&rsa.PrivateKey{}, false},
-		{&rsa.PrivateKey{PublicKey: rsaPub, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, true},
+		{rsaTestKey, true},
+		{&rsa.PrivateKey{PublicKey: rsaPub, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
 		{&rsa.PrivateKey{PublicKey: rsaPubZero, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
 		{&rsa.PrivateKey{PublicKey: rsa.PublicKey{N: big.NewInt(-1), E: 1}, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
 		{&rsa.PrivateKey{PublicKey: rsa.PublicKey{N: big.NewInt(1), E: -1}, D: bigInt, Primes: []*big.Int{bigInt, bigInt}}, false},
