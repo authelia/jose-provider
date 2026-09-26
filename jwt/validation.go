@@ -113,7 +113,7 @@ func (c Claims) ValidateWithLeeway(e Expected, leeway time.Duration) error {
 		return ErrNotValidYet
 	}
 
-	if c.Expiry != nil && validationTime.Add(-leeway).After(c.Expiry.Time()) {
+	if c.Expiry != nil && !validationTime.Add(-leeway).Before(c.Expiry.Time()) {
 		return ErrExpired
 	}
 

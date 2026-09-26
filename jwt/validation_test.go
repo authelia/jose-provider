@@ -79,11 +79,11 @@ func TestExpiryAndNotBefore(t *testing.T) {
 		assert.Equal(t, err, ErrExpired)
 	}
 	// some error is okay (leeway)
-	assert.NoError(t, c.Validate(Expected{Time: now.Add(DefaultLeeway)}))
+	assert.NoError(t, c.Validate(Expected{Time: now.Add(DefaultLeeway - time.Second)}))
 
 	// expired - no leeway
-	assert.NoError(t, c.ValidateWithLeeway(Expected{Time: now}, 0))
-	err = c.ValidateWithLeeway(Expected{Time: now.Add(1 * time.Second)}, 0)
+	assert.NoError(t, c.ValidateWithLeeway(Expected{Time: now.Add(-1 * time.Second)}, 0))
+	err = c.ValidateWithLeeway(Expected{Time: now}, 0)
 	if assert.Error(t, err) {
 		assert.Equal(t, err, ErrExpired)
 	}
@@ -174,6 +174,33 @@ func TestOptionalDateClaims(t *testing.T) {
 			expect = Expected{}
 			err = tc.claim.Validate(expect)
 			assert.Equal(t, tc.want, err)
+		})
+	}
+}
+
+// RFC 7519 Section 4.1.4.
+func TestExpiryIsExclusive(t *testing.T) {
+	exp := time.Unix(1000, 0)
+	c := Claims{Expiry: NewNumericDate(exp)}
+
+	testCases := []struct {
+		name    string
+		now     time.Time
+		leeway  time.Duration
+		wantErr error
+	}{
+		{"BeforeExpiry", exp.Add(-time.Nanosecond), 0, nil},
+		{"AtExpiry", exp, 0, ErrExpired},
+		{"AfterExpiry", exp.Add(time.Nanosecond), 0, ErrExpired},
+		{"BeforeLeewayEnds", exp.Add(time.Minute - time.Nanosecond), time.Minute, nil},
+		{"AtLeewayEnd", exp.Add(time.Minute), time.Minute, ErrExpired},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := c.ValidateWithLeeway(Expected{Time: tc.now}, tc.leeway); err != tc.wantErr {
+				t.Errorf("ValidateWithLeeway: got %v, want %v", err, tc.wantErr)
+			}
 		})
 	}
 }
