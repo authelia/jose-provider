@@ -18,6 +18,9 @@
 package jwt
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"strings"
 	"testing"
@@ -195,12 +198,21 @@ func TestDecodeToken(t *testing.T) {
 	_, err = ParseEncrypted(invalidPartsEncryptedToken, []jose.KeyAlgorithm{jose.DIRECT}, []jose.ContentEncryption{jose.A128GCM})
 	assert.Equal(t, err.Error(), "go-jose/go-jose: compact JWE format must have five parts")
 
-	_, err = ParseSignedAndEncrypted(signedAndEncryptedToken,
+	tok7, err := ParseSignedAndEncrypted(signedAndEncryptedToken,
 		[]jose.KeyAlgorithm{jose.RSA1_5},
 		[]jose.ContentEncryption{jose.A128CBC_HS256},
 		[]jose.SignatureAlgorithm{jose.RS256},
 	)
-	assert.Equal(t, err.Error(), "asymmetric encryption algorithms not supported for JWT: invalid key encryption algorithm: RSA1_5")
+	if assert.NoError(t, err, "Error parsing signed and encrypted token.") {
+		inner, err := tok7.Decrypt(testPrivRSAKey1)
+		if assert.NoError(t, err, "Error decrypting signed and encrypted token.") {
+			c := &Claims{}
+			if assert.NoError(t, inner.Claims(&testPrivRSAKey1.PublicKey, c)) {
+				assert.Equal(t, "subject", c.Subject)
+				assert.Equal(t, "issuer", c.Issuer)
+			}
+		}
+	}
 
 	_, err = ParseSignedAndEncrypted(invalidSignedAndEncryptedToken,
 		[]jose.KeyAlgorithm{jose.DIRECT},
@@ -294,6 +306,73 @@ func TestClaimsRejectsAPayloadWhichIsNotAnObject(t *testing.T) {
 
 	if err := parse(t, ` {"iss":"issuer"} `).Claims(key, &claims); err != nil || claims.Issuer != "issuer" {
 		t.Errorf("Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
+	}
+}
+
+// RFC 7519 Section 5.2 and Appendix A.2.
+func TestParseSignedAndEncryptedAcceptsAsymmetricKeyAlgorithms(t *testing.T) {
+	sigKey := []byte("0123456789ABCDEF0123456789ABCDEF")
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: sigKey}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		alg    jose.KeyAlgorithm
+		encKey any
+		decKey any
+		pbes2  bool
+	}{
+		{alg: jose.RSA_OAEP, encKey: &testPrivRSAKey1.PublicKey, decKey: testPrivRSAKey1},
+		{alg: jose.RSA_OAEP_256, encKey: &testPrivRSAKey1.PublicKey, decKey: testPrivRSAKey1},
+		{alg: jose.ECDH_ES, encKey: &ecKey.PublicKey, decKey: ecKey},
+		{alg: jose.ECDH_ES_A128KW, encKey: &ecKey.PublicKey, decKey: ecKey},
+		{alg: jose.PBES2_HS256_A128KW, encKey: "password", decKey: "password", pbes2: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.alg), func(t *testing.T) {
+			recipient := jose.Recipient{Algorithm: tc.alg, Key: tc.encKey}
+			if tc.pbes2 {
+				recipient.PBES2Count = 1000
+			}
+
+			encrypter, err := jose.NewEncrypter(jose.A128GCM, recipient, (&jose.EncrypterOptions{}).WithContentType("JWT"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			token, err := SignedAndEncrypted(signer, encrypter).Claims(Claims{Issuer: "issuer"}).Serialize()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			nested, err := ParseSignedAndEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM}, []jose.SignatureAlgorithm{jose.HS256})
+			if err != nil {
+				t.Fatalf("ParseSignedAndEncrypted: %v", err)
+			}
+
+			inner, err := nested.Decrypt(tc.decKey)
+			if err != nil {
+				t.Fatalf("Decrypt: %v", err)
+			}
+
+			var claims Claims
+
+			if err = inner.Claims(sigKey, &claims); err != nil || claims.Issuer != "issuer" {
+				t.Fatalf("Claims: got %v and issuer %q", err, claims.Issuer)
+			}
+
+			if _, err = ParseEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM}); err == nil {
+				t.Error("ParseEncrypted accepted a key algorithm which does not authenticate the sender")
+			}
+		})
 	}
 }
 
