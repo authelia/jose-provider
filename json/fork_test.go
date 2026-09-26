@@ -344,6 +344,41 @@ func TestForkRejectsInvalidUnicodeInSkippedValues(t *testing.T) {
 	}
 }
 
+// RFC 7493 Section 2.3.
+func TestForkRejectsDuplicateKeysInSkippedValues(t *testing.T) {
+	type target struct {
+		A RawMessage
+	}
+
+	testCases := map[string]string{
+		"UnknownField":        `{"ignored":{"k":1,"k":2}}`,
+		"UnknownFieldEscaped": `{"ignored":{"k":1,"k":2}}`,
+		"UnknownFieldNested":  `{"ignored":[{"x":{"k":1,"k":2}}]}`,
+		"RawMessage":          `{"A":{"k":1,"k":2}}`,
+		"RawMessageInArray":   `{"A":[{"k":1},{"j":1,"j":2}]}`,
+	}
+
+	for name, input := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var v target
+
+			if err := Unmarshal([]byte(input), &v); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+				t.Errorf("Unmarshal: got %v, want a duplicate key error", err)
+			}
+
+			if err := NewDecoder(strings.NewReader(input)).Decode(&v); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+				t.Errorf("Decode: got %v, want a duplicate key error", err)
+			}
+		})
+	}
+
+	var v target
+
+	if err := Unmarshal([]byte(`{"ignored":[{"k":1},{"k":2}],"A":{"k":{"k":1},"j":"k:"}}`), &v); err != nil {
+		t.Errorf("Unmarshal rejected the same key in distinct objects: %v", err)
+	}
+}
+
 type foldedKey string
 
 func (k *foldedKey) UnmarshalText(text []byte) error {
