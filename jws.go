@@ -666,8 +666,10 @@ func (obj JSONWebSignature) compactSerialize(detached bool) (string, error) {
 		), nil
 	}
 
-	// RFC 7797 Section 5.2: a '.' in an unencoded non-detached payload would be read as a segment separator.
-	if bytes.ContainsRune(payload, '.') {
+	// RFC 7797 Section 5.2: a '.' in an unencoded non-detached payload would be read as a segment separator. The
+	// compact serialization carries no whitespace either, which parsing enforces, so a payload with any would
+	// produce a token this package could not read back.
+	if bytes.ContainsRune(payload, '.') || containsWhitespace(string(payload)) {
 		return "", ErrNotSupported
 	}
 
