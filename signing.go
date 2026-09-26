@@ -111,13 +111,23 @@ func (so *SignerOptions) WithType(typ ContentType) *SignerOptions {
 }
 
 // WithCritical adds the given names to the critical ("crit") header and returns
-// the updated SignerOptions.
+// the updated SignerOptions. An existing "crit" set through WithHeader as a
+// []string or a []any has the names appended to it. One of any other type is
+// left as it is, and is rejected by NewSigner as not a list of names.
 func (so *SignerOptions) WithCritical(names ...string) *SignerOptions {
-	if so.ExtraHeaders[headerCritical] == nil {
-		so.WithHeader(headerCritical, make([]string, 0, len(names)))
+	switch crit := so.ExtraHeaders[headerCritical].(type) {
+	case nil:
+		so.WithHeader(headerCritical, append(make([]string, 0, len(names)), names...))
+	case []string:
+		so.ExtraHeaders[headerCritical] = append(crit, names...)
+	case []any:
+		for _, name := range names {
+			crit = append(crit, name)
+		}
+
+		so.ExtraHeaders[headerCritical] = crit
 	}
-	crit := so.ExtraHeaders[headerCritical].([]string)
-	so.ExtraHeaders[headerCritical] = append(crit, names...)
+
 	return so
 }
 
@@ -200,11 +210,68 @@ func (ctx *genericSigner) checkExtraHeaders() error {
 		}
 	}
 
+	if err := checkExtraCritical(ctx.extraHeaders); err != nil {
+		return err
+	}
+
 	if err := checkExtraB64Critical(ctx.extraHeaders); err != nil {
 		return err
 	}
 
 	return checkExtraJWK(ctx.extraHeaders)
+}
+
+var jwsRegisteredHeaders = map[HeaderKey]struct{}{
+	"alg": {}, "jku": {}, "jwk": {}, "kid": {}, "x5u": {}, "x5c": {}, "x5t": {}, "x5t#S256": {}, "typ": {}, "cty": {}, "crit": {},
+}
+
+func checkExtraCritical(extra map[HeaderKey]any) error {
+	v, ok := extra[headerCritical]
+	if !ok {
+		return nil
+	}
+
+	var names []string
+
+	switch crit := v.(type) {
+	case []string:
+		names = crit
+	case []any:
+		for _, name := range crit {
+			s, ok := name.(string)
+			if !ok {
+				return fmt.Errorf("%w: names must be strings", ErrInvalidCriticalHeader)
+			}
+
+			names = append(names, s)
+		}
+	default:
+		return fmt.Errorf("%w: must be a list of names", ErrInvalidCriticalHeader)
+	}
+
+	if len(names) == 0 {
+		return fmt.Errorf("%w: must not be empty", ErrInvalidCriticalHeader)
+	}
+
+	seen := make(map[string]struct{}, len(names))
+
+	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("%w: %q is listed more than once", ErrInvalidCriticalHeader, name)
+		}
+
+		seen[name] = struct{}{}
+
+		if _, ok := jwsRegisteredHeaders[HeaderKey(name)]; ok {
+			return fmt.Errorf("%w: %q is defined by RFC 7515", ErrInvalidCriticalHeader, name)
+		}
+
+		if _, ok := extra[HeaderKey(name)]; !ok {
+			return fmt.Errorf("%w: %q is not in the header", ErrInvalidCriticalHeader, name)
+		}
+	}
+
+	return nil
 }
 
 type payloadSigner interface {

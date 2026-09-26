@@ -513,6 +513,77 @@ func TestEmbeddedJWKVerifiesWhenSigningKeyListsKeyOps(t *testing.T) {
 	}
 }
 
+// RFC 7515 Section 4.1.11.
+func TestNewSignerRejectsInvalidCritical(t *testing.T) {
+	key := bytes.Repeat([]byte{1}, 32)
+
+	testCases := []struct {
+		name  string
+		opts  func(*SignerOptions)
+		valid bool
+	}{
+		{"NotInHeader", func(so *SignerOptions) { so.WithCritical("nope") }, false},
+		{"Empty", func(so *SignerOptions) { so.WithHeader(headerCritical, []string{}) }, false},
+		{"Duplicate", func(so *SignerOptions) { so.WithHeader("ext", 1).WithCritical("ext", "ext") }, false},
+		{"RegisteredAlgorithm", func(so *SignerOptions) { so.WithCritical(headerAlgorithm) }, false},
+		{"RegisteredKeyID", func(so *SignerOptions) { so.WithHeader(headerKeyID, "k").WithCritical(headerKeyID) }, false},
+		{"NotAList", func(so *SignerOptions) { so.WithHeader(headerCritical, "ext").WithHeader("ext", 1) }, false},
+		{"NotStrings", func(so *SignerOptions) { so.WithHeader(headerCritical, []any{1}) }, false},
+		{"Extension", func(so *SignerOptions) { so.WithHeader("ext", 1).WithCritical("ext") }, true},
+		{"ExtensionFromJSON", func(so *SignerOptions) { so.WithHeader("ext", 1).WithHeader(headerCritical, []any{"ext"}) }, true},
+		{"Base64", func(so *SignerOptions) { so.WithBase64(false) }, true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := new(SignerOptions)
+			tc.opts(opts)
+
+			signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
+			if !tc.valid {
+				if !errors.Is(err, ErrInvalidCriticalHeader) {
+					t.Errorf("NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("NewSigner: %v", err)
+			}
+
+			obj, err := signer.Sign([]byte("payload"))
+			if err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+
+			if _, err = ParseSignedJSON(obj.FullSerialize(), []SignatureAlgorithm{HS256}); err != nil {
+				t.Errorf("ParseSignedJSON: %v", err)
+			}
+		})
+	}
+}
+
+func TestWithCriticalAppendsToAnyExistingList(t *testing.T) {
+	key := bytes.Repeat([]byte{1}, 32)
+
+	opts := (&SignerOptions{}).WithHeader(headerCritical, []any{"ext"}).WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
+
+	if crit := opts.ExtraHeaders[headerCritical]; !reflect.DeepEqual(crit, []any{"ext", "other"}) {
+		t.Errorf("crit = %#v, want both names", crit)
+	}
+
+	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); err != nil {
+		t.Errorf("NewSigner: %v", err)
+	}
+
+	opts = (&SignerOptions{}).WithHeader(headerCritical, "ext").WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
+
+	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); !errors.Is(err, ErrInvalidCriticalHeader) {
+		t.Errorf("NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:
