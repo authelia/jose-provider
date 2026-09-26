@@ -230,5 +230,9 @@ func isNestedContentType(v any) bool {
 		return false
 	}
 
+	if len(contentType) > len("application/") && strings.EqualFold(contentType[:len("application/")], "application/") {
+		contentType = contentType[len("application/"):]
+	}
+
 	return strings.EqualFold(contentType, "JWT")
 }
