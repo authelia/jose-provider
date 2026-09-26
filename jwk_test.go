@@ -1113,16 +1113,17 @@ func TestMarshalJWKRejectsKeysUnmarshalRejects(t *testing.T) {
 	}
 
 	testCases := map[string]JSONWebKey{
-		"CertificateForAnotherKey":   {Key: &ecTestKey256.PublicKey, Certificates: []*x509.Certificate{otherCert}},
-		"CertificateForSymmetricKey": {Key: bytes.Repeat([]byte{1}, 32), Certificates: []*x509.Certificate{otherCert}},
-		"EmptySymmetricKey":          {Key: []byte{}},
-		"NilSymmetricKey":            {Key: []byte(nil)},
-		"PartialCRTValues":           {Key: partialCRT},
-		"NegativeRSAPrivateExponent": {Key: negativeD},
-		"MismatchedEd25519Halves":    {Key: edMismatched},
-		"ECPointNotOnCurve":          {Key: offCurve},
-		"ECPrivatePointNotOnCurve":   {Key: &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)}},
-		"NegativeECCoordinate":       {Key: negativeX},
+		"CertificateForAnotherKey":    {Key: &ecTestKey256.PublicKey, Certificates: []*x509.Certificate{otherCert}},
+		"CertificateForSymmetricKey":  {Key: bytes.Repeat([]byte{1}, 32), Certificates: []*x509.Certificate{otherCert}},
+		"EmptySymmetricKey":           {Key: []byte{}},
+		"NilSymmetricKey":             {Key: []byte(nil)},
+		"PartialCRTValues":            {Key: partialCRT},
+		"NegativeRSAPrivateExponent":  {Key: negativeD},
+		"MismatchedEd25519Halves":     {Key: edMismatched},
+		"ECPointNotOnCurve":           {Key: offCurve},
+		"ECPrivatePointNotOnCurve":    {Key: &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)}},
+		"NegativeECCoordinate":        {Key: negativeX},
+		"ECPrivateKeyForAnotherPoint": {Key: &ecdsa.PrivateKey{PublicKey: otherKey.PublicKey, D: ecTestKey256.D}},
 	}
 
 	for name, jwk := range testCases {
@@ -1146,9 +1147,10 @@ func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
 	offCurve := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
 
 	keys := map[string]any{
-		"MismatchedEd25519Halves":  edMismatched,
-		"ECPointNotOnCurve":        offCurve,
-		"ECPrivatePointNotOnCurve": &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)},
+		"MismatchedEd25519Halves":     edMismatched,
+		"ECPointNotOnCurve":           offCurve,
+		"ECPrivatePointNotOnCurve":    &ecdsa.PrivateKey{PublicKey: *offCurve, D: big.NewInt(5)},
+		"ECPrivateKeyForAnotherPoint": &ecdsa.PrivateKey{PublicKey: ecTestKey384.PublicKey, D: new(big.Int).Add(ecTestKey384.D, big.NewInt(1))},
 	}
 
 	for name, key := range keys {

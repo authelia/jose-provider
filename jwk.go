@@ -547,6 +547,10 @@ func (k *JSONWebKey) Thumbprint(hash crypto.Hash) ([]byte, error) {
 	case *ecdsa.PublicKey:
 		input, err = ecThumbprintInput(key.Curve, key.X, key.Y)
 	case *ecdsa.PrivateKey:
+		if key.D != nil && !ecPrivateKeyMatches(key) {
+			return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
+		}
+
 		input, err = ecThumbprintInput(key.Curve, key.X, key.Y)
 	case *rsa.PublicKey:
 		input, err = rsaThumbprintInput(key.N, key.E)
@@ -656,7 +660,7 @@ func (k *JSONWebKey) Valid() bool {
 		if key == nil || key.Curve == nil || key.X == nil || key.Y == nil || key.D == nil {
 			return false
 		}
-		if _, err := key.PublicKey.ECDH(); err != nil {
+		if !ecPrivateKeyMatches(key) {
 			return false
 		}
 	case *rsa.PublicKey:
@@ -1100,9 +1104,27 @@ func fromEcPrivateKey(ec *ecdsa.PrivateKey) (*rawJSONWebKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key")
 	}
 
+	if !ecPrivateKeyMatches(ec) {
+		return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
+	}
+
 	raw.D = newFixedSizeBuffer(ec.D.Bytes(), dSize(ec.PublicKey.Curve))
 
 	return raw, nil
+}
+
+func ecPrivateKeyMatches(priv *ecdsa.PrivateKey) bool {
+	pub, err := priv.PublicKey.ECDH()
+	if err != nil {
+		return false
+	}
+
+	ecdhKey, err := priv.ECDH()
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(ecdhKey.PublicKey().Bytes(), pub.Bytes())
 }
 
 // dSize returns the size in octets for the "d" member of an elliptic curve
