@@ -163,6 +163,50 @@ func checkExtraB64Critical(extra map[HeaderKey]any) error {
 	return ErrB64NotCritical
 }
 
+func checkExtraJWK(extra map[HeaderKey]any) error {
+	v, ok := extra[headerJWK]
+	if !ok {
+		return nil
+	}
+
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid jwk header parameter: %w", err)
+	}
+
+	var jwk JSONWebKey
+
+	if err = json.Unmarshal(raw, &jwk); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid jwk header parameter: %w", err)
+	}
+
+	if !jwk.IsPublic() {
+		return ErrNotPublic
+	}
+
+	return nil
+}
+
+func (ctx *genericSigner) checkExtraHeaders() error {
+	// RFC 7515 Section 4.1.1 makes "alg" the parameter a recipient trusts to pick its verification, and it
+	// follows from the signing key rather than from the caller.
+	if err := checkExtraHeaders(ctx.extraHeaders, headerAlgorithm); err != nil {
+		return err
+	}
+
+	if ctx.embedJWK {
+		if err := checkExtraHeaders(ctx.extraHeaders, headerJWK); err != nil {
+			return err
+		}
+	}
+
+	if err := checkExtraB64Critical(ctx.extraHeaders); err != nil {
+		return err
+	}
+
+	return checkExtraJWK(ctx.extraHeaders)
+}
+
 type payloadSigner interface {
 	signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error)
 }
@@ -214,13 +258,7 @@ func NewMultiSigner(sigs []SigningKey, opts *SignerOptions) (Signer, error) {
 		signer.embedJWK = opts.EmbedJWK
 		signer.extraHeaders = opts.ExtraHeaders
 
-		// RFC 7515 Section 4.1.1 makes "alg" the parameter a recipient trusts to pick its verification, and it
-		// follows from the signing key rather than from the caller.
-		if err := checkExtraHeaders(signer.extraHeaders, headerAlgorithm); err != nil {
-			return nil, err
-		}
-
-		if err := checkExtraB64Critical(signer.extraHeaders); err != nil {
+		if err := signer.checkExtraHeaders(); err != nil {
 			return nil, err
 		}
 	}
@@ -347,6 +385,10 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 			//
 			// See https://github.com/square/go-jose/issues/157 for more context.
 			if ctx.embedJWK {
+				if !recipientPubKey.IsPublic() {
+					return nil, ErrNotPublic
+				}
+
 				// MarshalJSON can fail for a semantically inconsistent key (an AKP
 				// key whose Algorithm contradicts its parameter set). Surface that
 				// as an error rather than letting mustSerializeJSON panic below.
@@ -368,6 +410,10 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 				return nil, fmt.Errorf("go-jose/go-jose: Error generating nonce: %v", err)
 			}
 			protected[headerNonce] = nonce
+		}
+
+		if err := ctx.checkExtraHeaders(); err != nil {
+			return nil, err
 		}
 
 		for k, v := range ctx.extraHeaders {
