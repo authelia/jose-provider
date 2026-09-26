@@ -512,6 +512,10 @@ func (ctx *genericEncrypter) EncryptWithAuthData(plaintext, aad []byte) (*JSONWe
 	}
 
 	for k, v := range ctx.extraHeaders {
+		if _, ok := (*obj.protected)[k]; ok {
+			return nil, fmt.Errorf("%w: %q is determined by the operation and cannot be supplied", ErrReservedHeaderParameter, k)
+		}
+
 		b, err := json.Marshal(v)
 		if err != nil {
 			return nil, err
