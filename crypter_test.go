@@ -806,6 +806,11 @@ func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
 			}
 		})
 
+		// TestRejectTooHighP2C covers decrypting above the maximum without deriving a key at that count.
+		if tc.p2c > maxP2C {
+			continue
+		}
+
 		t.Run(tc.name+"WhenDecrypting", func(t *testing.T) {
 			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password}, nil)
 			require.NoError(t, err)
