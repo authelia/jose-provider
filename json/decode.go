@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
@@ -895,8 +896,10 @@ func (d *decodeState) convertNumber(s string) (any, error) {
 			return nil, &UnmarshalTypeError{Value: "number " + s, Type: reflect.TypeFor[float64](), Offset: int64(d.off)}
 		}
 
-		// if it has no decimal value use int64
-		if fi, fd := math.Modf(f); fd == 0.0 {
+		if fi, fd := math.Modf(f); fd == 0.0 && fi >= math.MinInt64 && fi < -math.MinInt64 {
+			if fi == math.MinInt64 && !isMinInt64Literal(s) {
+				return f, nil
+			}
 			return int64(fi), nil
 		}
 		return f, nil
@@ -909,17 +912,15 @@ func (d *decodeState) convertNumber(s string) (any, error) {
 	}
 }
 
+func isMinInt64Literal(s string) bool {
+	r, ok := new(big.Rat).SetString(s)
+	return ok && r.IsInt() && r.Num().IsInt64() && r.Num().Int64() == math.MinInt64
+}
+
 var numberType = reflect.TypeFor[Number]()
 
-// literalStore decodes a literal stored in item into v.
-//
-// fromQuoted indicates whether this literal came from unwrapping a
-// string from the ",string" struct tag option. this is used only to
-// produce more helpful error messages.
 func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool) error {
-	// Check for unmarshaler.
 	if len(item) == 0 {
-		// Empty string given.
 		d.saveError(fmt.Errorf("json: invalid use of ,string struct tag, trying to unmarshal %q into %v", item, v.Type()))
 		return nil
 	}
@@ -1096,11 +1097,6 @@ func (d *decodeState) literalStore(item []byte, v reflect.Value, fromQuoted bool
 	return nil
 }
 
-// The xxxInterface routines build up a value to be stored
-// in an empty interface. They are not strictly necessary,
-// but they avoid the weight of reflection in this common case.
-
-// valueInterface is like value but returns any.
 func (d *decodeState) valueInterface() (val any, err error) {
 	switch d.opcode {
 	default:
@@ -1151,7 +1147,6 @@ func (d *decodeState) arrayInterface() ([]any, error) {
 	return v, nil
 }
 
-// objectInterface is like object but returns map[string]any.
 func (d *decodeState) objectInterface() (map[string]any, error) {
 	m := make(map[string]any)
 
@@ -1218,9 +1213,6 @@ func (d *decodeState) objectInterface() (map[string]any, error) {
 	return m, nil
 }
 
-// literalInterface consumes and returns a literal from d.data[d.off-1:] and
-// it reads the following byte ahead. The first byte of the literal has been
-// read already (that's how the caller knows it's a literal).
 func (d *decodeState) literalInterface() any {
 	// All bytes inside literal return scanContinue op code.
 	start := d.readIndex()
@@ -1257,8 +1249,6 @@ func (d *decodeState) literalInterface() any {
 	}
 }
 
-// getu4 decodes \uXXXX from the beginning of s, returning the hex value,
-// or it returns -1.
 func getu4(s []byte) rune {
 	if len(s) < 6 || s[0] != '\\' || s[1] != 'u' {
 		return -1
@@ -1280,8 +1270,6 @@ func getu4(s []byte) rune {
 	return r
 }
 
-// unquote converts a quoted JSON string literal s into an actual string t.
-// The rules are different than for Go, so cannot use strconv.Unquote.
 func unquote(s []byte) (t string, err error) {
 	b, err := unquoteBytes(s)
 	t = string(b)
