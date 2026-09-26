@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/fips140"
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
@@ -104,6 +105,62 @@ func TestInvalidAlgorithmsRSA(t *testing.T) {
 	_, err = dec.signPayload([]byte{}, "XYZ")
 	if err != ErrUnsupportedAlgorithm {
 		t.Error("should return error on invalid algorithm")
+	}
+}
+
+// RFC 7518 Section 3.5.
+func TestRSAPSSVerifyRequiresSaltLengthEqualToHash(t *testing.T) {
+	verifier := &rsaEncrypterVerifier{publicKey: &rsaTestKey.PublicKey}
+	payload := []byte("payload")
+
+	testCases := []struct {
+		alg  SignatureAlgorithm
+		hash crypto.Hash
+	}{
+		{PS256, crypto.SHA256},
+		{PS384, crypto.SHA384},
+		{PS512, crypto.SHA512},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.alg), func(t *testing.T) {
+			hasher := tc.hash.New()
+			hasher.Write(payload)
+			hashed := hasher.Sum(nil)
+
+			for _, saltLength := range []int{rsa.PSSSaltLengthAuto, 1, tc.hash.Size() - 1, tc.hash.Size() + 1} {
+				sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: saltLength})
+				if err != nil {
+					if fips140.Enabled() && saltLength > tc.hash.Size() {
+						continue
+					}
+
+					t.Fatal(err)
+				}
+
+				// In FIPS 140 mode crypto/rsa caps the automatic salt length at the size of the hash.
+				if fips140.Enabled() && saltLength == rsa.PSSSaltLengthAuto {
+					if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
+						t.Errorf("verifyPayload rejected the automatic salt length in FIPS 140 mode: %v", err)
+					}
+
+					continue
+				}
+
+				if err = verifier.verifyPayload(payload, sig, tc.alg); err == nil {
+					t.Errorf("verifyPayload accepted a salt length of %d", saltLength)
+				}
+			}
+
+			sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: tc.hash.Size()})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
+				t.Errorf("verifyPayload rejected a salt the size of the hash: %v", err)
+			}
+		})
 	}
 }
 

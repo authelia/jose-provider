@@ -398,7 +398,9 @@ func (ctx rsaEncrypterVerifier) verifyPayload(payload []byte, signature []byte, 
 	case RS256, RS384, RS512:
 		return rsa.VerifyPKCS1v15(ctx.publicKey, hash, hashed, signature)
 	case PS256, PS384, PS512:
-		return rsa.VerifyPSS(ctx.publicKey, hash, hashed, signature, nil)
+		return rsa.VerifyPSS(ctx.publicKey, hash, hashed, signature, &rsa.PSSOptions{
+			SaltLength: rsa.PSSSaltLengthEqualsHash,
+		})
 	}
 
 	return ErrUnsupportedAlgorithm
