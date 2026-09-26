@@ -309,6 +309,41 @@ func TestForkRejectsDuplicateConvertedMapKeys(t *testing.T) {
 	})
 }
 
+// RFC 7493 Section 2.1.
+func TestForkRejectsInvalidUnicodeInSkippedValues(t *testing.T) {
+	type target struct {
+		A RawMessage
+	}
+
+	testCases := map[string]string{
+		"UnknownFieldLoneSurrogate": `{"ignored":"\ud800"}`,
+		"UnknownFieldInvalidUTF8":   "{\"ignored\":\"a\xffb\"}",
+		"UnknownFieldKey":           `{"ignored":{"\udc00":1}}`,
+		"RawMessage":                "{\"A\":[\"a\xffb\"]}",
+		"RawMessageSurrogate":       `{"A":"\ud83dx"}`,
+	}
+
+	for name, input := range testCases {
+		t.Run(name, func(t *testing.T) {
+			var v target
+
+			if err := Unmarshal([]byte(input), &v); !errors.Is(err, ErrInvalidUnicode) {
+				t.Errorf("Unmarshal: got %v, want %v", err, ErrInvalidUnicode)
+			}
+
+			if err := NewDecoder(strings.NewReader(input)).Decode(&v); !errors.Is(err, ErrInvalidUnicode) {
+				t.Errorf("Decode: got %v, want %v", err, ErrInvalidUnicode)
+			}
+		})
+	}
+
+	var v target
+
+	if err := Unmarshal([]byte(`{"ignored":"😀 \\ \" é","A":"😀"}`), &v); err != nil {
+		t.Errorf("Unmarshal rejected valid escapes in skipped values: %v", err)
+	}
+}
+
 type foldedKey string
 
 func (k *foldedKey) UnmarshalText(text []byte) error {

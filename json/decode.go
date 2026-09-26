@@ -108,6 +108,10 @@ func Unmarshal(data []byte, v any) error {
 		return err
 	}
 
+	if err = checkStringsUnicode(data); err != nil {
+		return err
+	}
+
 	d.init(data)
 	return d.unmarshal(v)
 }
@@ -1288,6 +1292,43 @@ func getu4(s []byte) rune {
 		r = r*16 + rune(c)
 	}
 	return r
+}
+
+func checkStringsUnicode(data []byte) error {
+	for i := 0; i < len(data); i++ {
+		if data[i] != '"' {
+			continue
+		}
+
+		for i++; i < len(data) && data[i] != '"'; {
+			switch c := data[i]; {
+			case c == '\\' && i+1 < len(data) && data[i+1] == 'u':
+				rr := getu4(data[i:])
+				i += 6
+
+				if utf16.IsSurrogate(rr) {
+					if utf16.DecodeRune(rr, getu4(data[i:])) == unicode.ReplacementChar {
+						return ErrInvalidUnicode
+					}
+
+					i += 6
+				}
+			case c == '\\':
+				i += 2
+			case c < utf8.RuneSelf:
+				i++
+			default:
+				rr, size := utf8.DecodeRune(data[i:])
+				if rr == utf8.RuneError && size == 1 {
+					return ErrInvalidUnicode
+				}
+
+				i += size
+			}
+		}
+	}
+
+	return nil
 }
 
 func isUnquoteError(err error) bool {
