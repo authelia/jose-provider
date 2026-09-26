@@ -492,6 +492,15 @@ func (ctx ecDecrypterSigner) decryptKey(headers rawHeader, recipient *recipientI
 	if recipient == nil {
 		return nil, errors.New("go-jose/go-jose: missing recipient")
 	}
+
+	if ctx.privateKey == nil || ctx.privateKey.D == nil {
+		return nil, errors.New("go-jose/go-jose: invalid EC private key")
+	}
+
+	if _, err := ctx.privateKey.ECDH(); err != nil {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key: %w", err)
+	}
+
 	epk, err := headers.getEPK()
 	if err != nil {
 		return nil, errors.New("go-jose/go-jose: invalid epk header")
