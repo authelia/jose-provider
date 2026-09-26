@@ -30,6 +30,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"reflect"
 	"strings"
@@ -1171,6 +1172,44 @@ func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
 	}
 }
 
+// RFC 7518 Section 6.3.1.2 and RFC 8017 Section 3.1.
+func TestRSAJWKRejectsInvalidExponent(t *testing.T) {
+	for _, e := range []int{1, 2, 4, 65536} {
+		t.Run(fmt.Sprint(e), func(t *testing.T) {
+			pub := &rsa.PublicKey{N: rsaTestKey.N, E: e}
+			jwk := JSONWebKey{Key: pub}
+
+			if jwk.Valid() {
+				t.Error("Valid reported the key as valid")
+			}
+
+			if _, err := jwk.MarshalJSON(); err == nil {
+				t.Error("MarshalJSON accepted the key")
+			}
+
+			if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
+				t.Error("Thumbprint accepted the key")
+			}
+
+			input := `{"kty":"RSA","n":"` + base64.RawURLEncoding.EncodeToString(rsaTestKey.N.Bytes()) +
+				`","e":"` + base64.RawURLEncoding.EncodeToString(big.NewInt(int64(e)).Bytes()) + `"}`
+
+			if err := jwk.UnmarshalJSON([]byte(input)); err == nil {
+				t.Error("UnmarshalJSON accepted the key")
+			}
+		})
+	}
+
+	input := `{"kty":"RSA","n":"` + base64.RawURLEncoding.EncodeToString(rsaTestKey.N.Bytes()) +
+		`","e":"` + base64.RawURLEncoding.EncodeToString(big.NewInt(1<<31).Bytes()) + `"}`
+
+	var jwk JSONWebKey
+
+	if err := jwk.UnmarshalJSON([]byte(input)); err == nil {
+		t.Error("UnmarshalJSON accepted an exponent of 2^31")
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public
@@ -1660,7 +1699,7 @@ func TestJWKValid(t *testing.T) {
 	eccPub := ecTestKey256.PublicKey
 	eccOffCurve := ecdsa.PublicKey{Curve: elliptic.P256(), X: bigInt, Y: bigInt}
 	rsaPubZero := rsa.PublicKey{N: bigInt, E: 1}
-	rsaPub := rsa.PublicKey{N: big.NewInt(1), E: 1}
+	rsaPub := rsa.PublicKey{N: big.NewInt(1), E: 65537}
 	edPubEmpty := ed25519.PublicKey([]byte{})
 	edPrivEmpty := ed25519.PublicKey([]byte{})
 
@@ -1677,6 +1716,7 @@ func TestJWKValid(t *testing.T) {
 		{&ecdsa.PrivateKey{PublicKey: eccOffCurve, D: bigInt}, false},
 		{&rsa.PublicKey{}, false},
 		{&rsaPub, true},
+		{&rsa.PublicKey{N: big.NewInt(1), E: 1}, false},
 		{&rsaPubZero, false},
 		{&rsa.PublicKey{N: big.NewInt(-1), E: 1}, false},
 		{&rsa.PublicKey{N: big.NewInt(1), E: -1}, false},
