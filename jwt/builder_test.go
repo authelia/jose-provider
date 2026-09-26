@@ -266,7 +266,7 @@ func TestBuilderHeadersSigner(t *testing.T) {
 				Algorithm: jose.RS256,
 				Key: &jose.JSONWebKey{
 					KeyID:     keyID,
-					Algorithm: "RSA",
+					Algorithm: string(jose.RS256),
 					Key:       key,
 				},
 			}

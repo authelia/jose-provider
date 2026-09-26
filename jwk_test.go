@@ -689,6 +689,88 @@ func TestJWKUnsupported(t *testing.T) {
 	}
 }
 
+// RFC 7517 Sections 4.2 and 4.4.
+func TestSingleJWKUseAndAlgorithmAreEnforced(t *testing.T) {
+	macKey := bytes.Repeat([]byte{1}, 32)
+	kekKey := bytes.Repeat([]byte{2}, 16)
+
+	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: macKey}, nil)
+	require.NoError(t, err)
+
+	jws, err := signer.Sign([]byte("payload"))
+	require.NoError(t, err)
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: kekKey}, nil)
+	require.NoError(t, err)
+
+	jwe, err := encrypter.Encrypt([]byte("payload"))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"Unrestricted", false},
+		{"Matching", false},
+		{"WrongUse", true},
+		{"WrongAlgorithm", true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sigKey := JSONWebKey{Key: macKey}
+			encKey := JSONWebKey{Key: kekKey}
+
+			switch tc.name {
+			case "Matching":
+				sigKey.Use, sigKey.Algorithm = jwkUseSignature, string(HS256)
+				encKey.Use, encKey.Algorithm = jwkUseEncryption, string(A128KW)
+			case "WrongUse":
+				sigKey.Use, encKey.Use = jwkUseEncryption, jwkUseSignature
+			case "WrongAlgorithm":
+				sigKey.Algorithm, encKey.Algorithm = string(HS384), string(A256KW)
+			}
+
+			check := func(op string, err error) {
+				t.Helper()
+
+				if tc.wantErr {
+					if !errors.Is(err, ErrUnsuitableKey) {
+						t.Errorf("%s: got %v, want %v", op, err, ErrUnsuitableKey)
+					}
+				} else if err != nil {
+					t.Errorf("%s: %v", op, err)
+				}
+			}
+
+			for _, key := range []any{sigKey, &sigKey} {
+				_, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, nil)
+				check("NewSigner", err)
+
+				_, err = jws.Verify(key)
+				check("Verify", err)
+			}
+
+			for _, key := range []any{encKey, &encKey} {
+				_, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: key}, nil)
+				check("NewEncrypter", err)
+
+				_, err = NewMultiEncrypter(A128GCM, []Recipient{{Algorithm: A128KW, Key: key}}, nil)
+				check("NewMultiEncrypter", err)
+
+				_, err = jwe.Decrypt(key)
+				check("Decrypt", err)
+			}
+		})
+	}
+
+	dirKey := JSONWebKey{Key: kekKey, Use: jwkUseSignature}
+
+	if _, err = NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: dirKey}, nil); !errors.Is(err, ErrUnsuitableKey) {
+		t.Errorf("NewEncrypter(dir): got %v, want %v", err, ErrUnsuitableKey)
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public

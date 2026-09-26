@@ -219,6 +219,10 @@ func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions)
 		return nil, err
 	}
 
+	if err := checkSuitableJWK(rcpt.Key, jwkUseEncryption, string(rcpt.Algorithm)); err != nil {
+		return nil, err
+	}
+
 	var keyID string
 	var rawKey any
 	switch encryptionKey := rcpt.Key.(type) {
@@ -390,6 +394,10 @@ func (ctx *genericEncrypter) addRecipient(recipient Recipient) (err error) {
 }
 
 func makeJWERecipient(alg KeyAlgorithm, encryptionKey any) (recipientKeyInfo, error) {
+	if err := checkSuitableJWK(encryptionKey, jwkUseEncryption, string(alg)); err != nil {
+		return recipientKeyInfo{}, err
+	}
+
 	switch encryptionKey := encryptionKey.(type) {
 	case *rsa.PublicKey:
 		return newRSARecipient(alg, encryptionKey)

@@ -303,6 +303,10 @@ func makeJWSRecipient(alg SignatureAlgorithm, signingKey any) (recipientSigInfo,
 }
 
 func newJWKSigner(alg SignatureAlgorithm, signingKey JSONWebKey) (recipientSigInfo, error) {
+	if err := checkSuitableJWK(signingKey, jwkUseSignature, string(alg)); err != nil {
+		return recipientSigInfo{}, err
+	}
+
 	recipient, err := makeJWSRecipient(alg, signingKey.Key)
 	if err != nil {
 		return recipientSigInfo{}, err

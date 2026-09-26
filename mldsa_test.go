@@ -451,12 +451,8 @@ func TestMLDSAEmbedJWKWithContradictoryAlgorithm(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_44)
 	signingKey := JSONWebKey{Key: priv, Algorithm: string(ML_DSA_87)}
 
-	signer, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: signingKey}, &SignerOptions{EmbedJWK: true})
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
-	if _, err := signer.Sign([]byte("Lorem ipsum dolor sit amet")); err == nil {
-		t.Error("Sign accepted a signing key whose embedded JWK Algorithm contradicts its parameter set")
+	if _, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: signingKey}, &SignerOptions{EmbedJWK: true}); !errors.Is(err, ErrUnsuitableKey) {
+		t.Errorf("NewSigner: got %v, want %v", err, ErrUnsuitableKey)
 	}
 }
 
