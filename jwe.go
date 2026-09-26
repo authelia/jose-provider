@@ -272,6 +272,14 @@ func ParseEncryptedJSON(
 		return nil, errors.New("go-jose/go-jose: JWE carries both recipients and flattened recipient members")
 	}
 
+	if len(parsed.Recipients) == 0 {
+		if present, err := hasJSONMember(input, "recipients"); err != nil {
+			return nil, err
+		} else if present {
+			return nil, errors.New("go-jose/go-jose: JWE recipients must be a non-empty array")
+		}
+	}
+
 	return parsed.sanitized(keyEncryptionAlgorithms, contentEncryption)
 }
 

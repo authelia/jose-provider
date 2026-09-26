@@ -450,6 +450,40 @@ func TestParseEncryptedJSONRejectsRecipientsWhichDisagreeOnEnc(t *testing.T) {
 	}
 }
 
+// RFC 7516 Section 7.2.1.
+func TestParseEncryptedJSONRejectsEmptyRecipients(t *testing.T) {
+	key := bytes.Repeat([]byte{1}, 16)
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: key}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := encrypter.Encrypt([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var members map[string]any
+
+	if err = json.Unmarshal([]byte(obj.FullSerialize()), &members); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, recipients := range []any{[]any{}, nil} {
+		members["recipients"] = recipients
+
+		input, err := json.Marshal(members)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err = ParseEncryptedJSON(string(input), []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM}); err == nil {
+			t.Errorf("ParseEncryptedJSON accepted %s", input)
+		}
+	}
+}
+
 func jweJSONWithoutProtectedHeader(t *testing.T, key []byte, plaintext []byte) string {
 	t.Helper()
 
