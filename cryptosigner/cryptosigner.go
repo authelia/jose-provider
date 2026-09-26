@@ -20,6 +20,7 @@
 package cryptosigner
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -27,6 +28,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/asn1"
+	"errors"
 	"io"
 	"math/big"
 	"slices"
@@ -141,19 +143,27 @@ func (s *cryptoSigner) SignPayload(payload []byte, alg jose.SignatureAlgorithm) 
 		sig := struct {
 			R, S *big.Int
 		}{}
-		if _, err = asn1.Unmarshal(b, &sig); err != nil {
+		rest, err := asn1.Unmarshal(b, &sig)
+		if err != nil {
 			return nil, err
 		}
 
-		rBytes := sig.R.Bytes()
-		out = make([]byte, byteLen)
-		copy(out[byteLen-len(rBytes):], rBytes)
+		if len(rest) != 0 || sig.R.Sign() <= 0 || sig.S.Sign() <= 0 || sig.R.BitLen() > byteLen*8 || sig.S.BitLen() > byteLen*8 {
+			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
+		}
 
-		sBytes := sig.S.Bytes()
-		sBytesPadded := make([]byte, byteLen)
-		copy(sBytesPadded[byteLen-len(sBytes):], sBytes)
+		if canonical, err := asn1.Marshal(sig); err != nil || !bytes.Equal(canonical, b) {
+			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
+		}
 
-		out = append(out, sBytesPadded...)
+		if pub, ok := s.signer.Public().(*ecdsa.PublicKey); !ok || pub == nil || pub.Curve == nil ||
+			sig.R.Cmp(pub.Curve.Params().N) >= 0 || sig.S.Cmp(pub.Curve.Params().N) >= 0 {
+			return nil, errors.New("go-jose/go-jose/cryptosigner: invalid ECDSA signature")
+		}
+
+		out = make([]byte, 2*byteLen)
+		sig.R.FillBytes(out[:byteLen])
+		sig.S.FillBytes(out[byteLen:])
 	case jose.RS256, jose.RS384, jose.RS512:
 		out, err = s.signer.Sign(s.rand, hashed, hash)
 	case jose.PS256, jose.PS384, jose.PS512:

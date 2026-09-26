@@ -817,6 +817,28 @@ func TestUnmarshalRSAJWKRejectsLeadingZeroOctets(t *testing.T) {
 	}
 }
 
+func TestMarshalECPrivateKeyRejectsDOutOfRange(t *testing.T) {
+	testCases := []struct {
+		name string
+		d    *big.Int
+	}{
+		{"TooLong", new(big.Int).Lsh(big.NewInt(1), 300)},
+		{"Zero", big.NewInt(0)},
+		{"Negative", new(big.Int).Neg(ecTestKey256.D)},
+		{"Order", elliptic.P256().Params().N},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := &ecdsa.PrivateKey{PublicKey: ecTestKey256.PublicKey, D: tc.d}
+
+			if _, err := (&JSONWebKey{Key: key}).MarshalJSON(); err == nil {
+				t.Error("MarshalJSON accepted an out of range d")
+			}
+		})
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public

@@ -24,9 +24,11 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -50,6 +52,52 @@ func TestRoundtripsJWSCryptoSigner(t *testing.T) {
 				t.Error(err, alg, i)
 			}
 		}
+	}
+}
+
+func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	der := func(r, s *big.Int) []byte {
+		b, err := asn1.Marshal(struct{ R, S *big.Int }{r, s})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return b
+	}
+
+	one := big.NewInt(1)
+	order := elliptic.P256().Params().N
+
+	extraInteger, err := asn1.Marshal(struct{ R, S, T *big.Int }{one, one, one})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := map[string][]byte{
+		"RIsOrder":      der(order, one),
+		"SIsOrder":      der(one, order),
+		"ExtraInteger":  extraInteger,
+		"RTooLong":      der(new(big.Int).Lsh(one, 256), one),
+		"STooLong":      der(one, new(big.Int).Lsh(one, 256)),
+		"RNegative":     der(big.NewInt(-1), one),
+		"SZero":         der(one, big.NewInt(0)),
+		"TrailingBytes": append(der(one, one), 0),
+		"NotDER":        {0x01},
+	}
+
+	for name, sig := range testCases {
+		t.Run(name, func(t *testing.T) {
+			signer := Opaque(derSigner{key: key, sig: sig})
+
+			if _, err := signer.SignPayload([]byte("payload"), jose.ES256); err == nil {
+				t.Error("SignPayload accepted a malformed signature")
+			}
+		})
 	}
 }
 
@@ -300,4 +348,17 @@ func (nilECDSASigner) Public() crypto.PublicKey {
 
 func (nilECDSASigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return nil, errors.New("nilECDSASigner: Sign unexpectedly called")
+}
+
+type derSigner struct {
+	key *ecdsa.PrivateKey
+	sig []byte
+}
+
+func (s derSigner) Public() crypto.PublicKey {
+	return &s.key.PublicKey
+}
+
+func (s derSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	return s.sig, nil
 }

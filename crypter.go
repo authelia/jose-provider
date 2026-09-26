@@ -269,7 +269,10 @@ func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions)
 			apvData:   encrypter.apvData,
 			publicKey: keyDSA,
 		}
-		recipientInfo, _ := newECDHRecipient(rcpt.Algorithm, keyDSA)
+		recipientInfo, err := newECDHRecipient(rcpt.Algorithm, keyDSA)
+		if err != nil {
+			return nil, err
+		}
 		recipientInfo.keyID = keyID
 		if rcpt.KeyID != "" {
 			recipientInfo.keyID = rcpt.KeyID

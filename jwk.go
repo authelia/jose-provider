@@ -1015,7 +1015,7 @@ func fromEcPrivateKey(ec *ecdsa.PrivateKey) (*rawJSONWebKey, error) {
 		return nil, err
 	}
 
-	if ec.D == nil {
+	if ec.D == nil || ec.D.Sign() <= 0 || len(ec.D.Bytes()) > dSize(ec.PublicKey.Curve) || ec.D.Cmp(ec.PublicKey.Curve.Params().N) >= 0 {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key")
 	}
 

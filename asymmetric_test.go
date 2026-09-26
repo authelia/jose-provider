@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"testing"
 
 	"authelia.com/provider/jose/json"
@@ -161,6 +162,42 @@ func TestRSAPSSVerifyRequiresSaltLengthEqualToHash(t *testing.T) {
 				t.Errorf("verifyPayload rejected a salt the size of the hash: %v", err)
 			}
 		})
+	}
+}
+
+func TestECDHDecryptRejectsMalformedPrivateKey(t *testing.T) {
+	keys := map[string]*ecdsa.PrivateKey{
+		"Nil":      nil,
+		"ZeroD":    {PublicKey: ecTestKey256.PublicKey, D: big.NewInt(0)},
+		"DIsOrder": {PublicKey: ecTestKey256.PublicKey, D: elliptic.P256().Params().N},
+		"NilD":     {PublicKey: ecTestKey256.PublicKey},
+		"NilCurve": {PublicKey: ecdsa.PublicKey{X: ecTestKey256.X, Y: ecTestKey256.Y}, D: ecTestKey256.D},
+	}
+
+	for _, alg := range []KeyAlgorithm{ECDH_ES, ECDH_ES_A128KW} {
+		encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: &ecTestKey256.PublicKey}, nil)
+		require.NoError(t, err)
+
+		obj, err := encrypter.Encrypt([]byte("payload"))
+		require.NoError(t, err)
+
+		for name, key := range keys {
+			t.Run(string(alg)+"/"+name, func(t *testing.T) {
+				if _, err := obj.Decrypt(key); err == nil {
+					t.Error("Decrypt accepted a malformed private key")
+				}
+			})
+		}
+	}
+}
+
+func TestNewEncrypterRejectsECDHESToAPointNotOnTheCurve(t *testing.T) {
+	key := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
+
+	for _, alg := range []KeyAlgorithm{ECDH_ES, ECDH_ES_A128KW} {
+		if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: key}, nil); err == nil {
+			t.Errorf("NewEncrypter(%s) accepted a public key not on the curve", alg)
+		}
 	}
 }
 

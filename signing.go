@@ -391,7 +391,7 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 
 				// MarshalJSON can fail for a semantically inconsistent key (an AKP
 				// key whose Algorithm contradicts its parameter set). Surface that
-				// as an error rather than letting mustSerializeJSON panic below.
+				// as its own error rather than one wrapped by marshalling the header below.
 				if _, err := recipientPubKey.MarshalJSON(); err != nil {
 					return nil, err
 				}

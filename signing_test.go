@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"runtime"
 	"strings"
@@ -453,6 +454,27 @@ func TestSignChecksExtraHeadersChangedAfterNewSigner(t *testing.T) {
 
 			if _, err = signer.Sign([]byte("payload")); !errors.Is(err, tc.wantErr) {
 				t.Errorf("Sign: got %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSignReturnsAnErrorForAHeaderJSONCannotEncode(t *testing.T) {
+	values := map[string]any{
+		"NaN":  math.NaN(),
+		"Chan": make(chan int),
+		"Func": func() {},
+	}
+
+	for name, v := range values {
+		t.Run(name, func(t *testing.T) {
+			signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: bytes.Repeat([]byte{1}, 32)}, (&SignerOptions{}).WithHeader("x", v))
+			if err != nil {
+				t.Fatalf("NewSigner: %v", err)
+			}
+
+			if _, err = signer.Sign([]byte("payload")); err == nil {
+				t.Error("Sign accepted a header value JSON cannot encode")
 			}
 		})
 	}
