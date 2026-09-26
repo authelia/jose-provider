@@ -839,6 +839,57 @@ func TestMarshalECPrivateKeyRejectsDOutOfRange(t *testing.T) {
 	}
 }
 
+// RFC 7517 Section 4.7.
+func TestParseCertificateChainRequiresCanonicalBase64(t *testing.T) {
+	var der []byte
+
+	for serial := int64(1); len(der)%3 == 0; serial++ {
+		template := &x509.Certificate{SerialNumber: big.NewInt(serial)}
+
+		var err error
+
+		der, err = x509.CreateCertificate(rand.Reader, template, template, &ecTestKey256.PublicKey, ecTestKey256)
+		require.NoError(t, err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(der)
+
+	_, err := parseCertificateChain([]string{encoded})
+	require.NoError(t, err)
+
+	last := strings.TrimRight(encoded, "=")
+	pad := encoded[len(last):]
+
+	var nonCanonical string
+
+	for _, c := range "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" {
+		candidate := last[:len(last)-1] + string(c) + pad
+		if decoded, err := base64.StdEncoding.DecodeString(candidate); err == nil && candidate != encoded && bytes.Equal(decoded, der) {
+			nonCanonical = candidate
+
+			break
+		}
+	}
+
+	if nonCanonical == "" {
+		t.Fatal("no non-canonical encoding of the certificate was found")
+	}
+
+	testCases := map[string]string{
+		"LineBreak":         encoded[:64] + "\n" + encoded[64:],
+		"CarriageReturn":    encoded[:64] + "\r\n" + encoded[64:],
+		"NonCanonicalFinal": nonCanonical,
+	}
+
+	for name, value := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseCertificateChain([]string{value}); err == nil {
+				t.Error("parseCertificateChain accepted a non-canonical encoding")
+			}
+		})
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public

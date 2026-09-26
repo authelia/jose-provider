@@ -579,6 +579,11 @@ func parseCertificateChain(chain []string) ([]*x509.Certificate, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		if base64.StdEncoding.EncodeToString(raw) != cert {
+			return nil, errors.New("go-jose/go-jose: non-canonical base64 encoding in x5c")
+		}
+
 		out[i], err = x509.ParseCertificate(raw)
 		if err != nil {
 			return nil, err
