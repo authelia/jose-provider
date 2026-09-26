@@ -380,7 +380,7 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	if len(parsed.Signatures) == 0 {
 		// No signatures array, must be flattened serialization
 		signature := Signature{}
-		if parsed.Protected != nil && len(parsed.Protected.bytes()) > 0 {
+		if parsed.Protected != nil {
 			if !isJSONObject(parsed.Protected.bytes()) {
 				return nil, errProtectedHeaderNotObject
 			}
@@ -471,7 +471,7 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	}
 
 	for i, sig := range parsed.Signatures {
-		if sig.Protected != nil && len(sig.Protected.bytes()) > 0 {
+		if sig.Protected != nil {
 			if !isJSONObject(sig.Protected.bytes()) {
 				return nil, errProtectedHeaderNotObject
 			}

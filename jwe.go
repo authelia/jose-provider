@@ -304,7 +304,7 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		}
 	}
 
-	if parsed.Protected != nil && len(parsed.Protected.bytes()) > 0 {
+	if parsed.Protected != nil {
 		if !isJSONObject(parsed.Protected.bytes()) {
 			return nil, errProtectedHeaderNotObject
 		}

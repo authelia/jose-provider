@@ -833,7 +833,7 @@ func TestInvalidHMACKeySize(t *testing.T) {
 
 // RFC 7515 Section 5.2 step 3.
 func TestParseSignedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) {
-	for _, protected := range []string{"null", " null ", "[]", `"alg"`, "1", "true"} {
+	for _, protected := range []string{"", "null", " null ", "[]", `"alg"`, "1", "true"} {
 		t.Run(protected, func(t *testing.T) {
 			b64 := base64.RawURLEncoding.EncodeToString([]byte(protected))
 
