@@ -1174,7 +1174,7 @@ func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
 
 // RFC 7518 Section 6.3.1.2 and RFC 8017 Section 3.1.
 func TestRSAJWKRejectsInvalidExponent(t *testing.T) {
-	for _, e := range []int{1, 2, 4, 65536, 1 << 31} {
+	for _, e := range []int{1, 2, 4, 65536} {
 		t.Run(fmt.Sprint(e), func(t *testing.T) {
 			pub := &rsa.PublicKey{N: rsaTestKey.N, E: e}
 			jwk := JSONWebKey{Key: pub}
@@ -1198,6 +1198,15 @@ func TestRSAJWKRejectsInvalidExponent(t *testing.T) {
 				t.Error("UnmarshalJSON accepted the key")
 			}
 		})
+	}
+
+	input := `{"kty":"RSA","n":"` + base64.RawURLEncoding.EncodeToString(rsaTestKey.N.Bytes()) +
+		`","e":"` + base64.RawURLEncoding.EncodeToString(big.NewInt(1<<31).Bytes()) + `"}`
+
+	var jwk JSONWebKey
+
+	if err := jwk.UnmarshalJSON([]byte(input)); err == nil {
+		t.Error("UnmarshalJSON accepted an exponent of 2^31")
 	}
 }
 
