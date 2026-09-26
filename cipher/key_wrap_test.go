@@ -53,7 +53,7 @@ func TestKeyUnwrapShort(t *testing.T) {
 		}
 	}
 
-	input = bytes.Repeat([]byte("a"), 17)
+	input = bytes.Repeat([]byte("a"), 25)
 	want = "go-jose/go-jose: key wrap input must be 8 byte blocks"
 	_, err = KeyUnwrap(block0, input)
 	if err == nil {
@@ -147,6 +147,24 @@ func TestAesKeyWrapInvalid(t *testing.T) {
 		t.Error("key wrap accepted invalid input")
 	}
 
+}
+
+// RFC 3394 Section 2.
+func TestKeyWrapRequiresTwoBlocks(t *testing.T) {
+	kek, _ := hex.DecodeString("000102030405060708090A0B0C0D0E0F")
+	block, _ := aes.NewCipher(kek)
+
+	for _, n := range []int{0, 8} {
+		if out, err := KeyWrap(block, make([]byte, n)); err == nil {
+			t.Errorf("KeyWrap wrapped %d octets as %X", n, out)
+		}
+	}
+
+	wrapped, _ := hex.DecodeString("1604BDF081DF251151AE25F43725C074")
+
+	if out, err := KeyUnwrap(block, wrapped); err == nil {
+		t.Errorf("KeyUnwrap unwrapped a single block as %X", out)
+	}
 }
 
 func BenchmarkAesKeyWrap(b *testing.B) {

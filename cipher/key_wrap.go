@@ -31,6 +31,10 @@ func KeyWrap(block cipher.Block, cek []byte) ([]byte, error) {
 		return nil, errors.New("go-jose/go-jose: key wrap input must be 8 byte blocks")
 	}
 
+	if len(cek) < 16 {
+		return nil, errors.New("go-jose/go-jose: key wrap input must be at least 2 blocks")
+	}
+
 	n := len(cek) / 8
 	r := make([][]byte, n)
 
@@ -72,7 +76,7 @@ func KeyWrap(block cipher.Block, cek []byte) ([]byte, error) {
 // https://datatracker.ietf.org/doc/html/rfc7518#section-4.8
 func KeyUnwrap(block cipher.Block, ciphertext []byte) ([]byte, error) {
 	n := (len(ciphertext) / 8) - 1
-	if n <= 0 {
+	if n < 2 {
 		return nil, errors.New("go-jose/go-jose: JWE Encrypted Key too short")
 	}
 
