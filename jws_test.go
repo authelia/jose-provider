@@ -877,6 +877,24 @@ func TestJWSHeaderRejectsInvalidUnicode(t *testing.T) {
 	}
 }
 
+// RFC 7797 Section 3.
+func TestParseSignedJSONRejectsUnprotectedB64(t *testing.T) {
+	protected := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`))
+
+	for _, b64 := range []string{"false", "true"} {
+		inputs := map[string]string{
+			"Flattened": `{"protected":"` + protected + `","header":{"b64":` + b64 + `},"payload":"cGF5bG9hZA","signature":"AAAA"}`,
+			"General":   `{"payload":"cGF5bG9hZA","signatures":[{"protected":"` + protected + `","header":{"b64":` + b64 + `},"signature":"AAAA"}]}`,
+		}
+
+		for name, input := range inputs {
+			if _, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256}); err == nil {
+				t.Errorf("%s: ParseSignedJSON accepted an unprotected b64 of %s", name, b64)
+			}
+		}
+	}
+}
+
 func BenchmarkParseSignedCompat(b *testing.B) {
 	raw := `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJpc3N1ZXIiLCJzdWIiOiJzdWJqZWN0In0.OFD0iVfPczqWBA_TRi1jGB5PF699eekcHt4D6qNoimc`
 
