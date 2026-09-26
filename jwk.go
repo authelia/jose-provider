@@ -514,6 +514,10 @@ func rsaThumbprintInput(n *big.Int, e int) (string, error) {
 		return "", errors.New("go-jose/go-jose: invalid RSA key, n and e must be positive")
 	}
 
+	if !validRSAExponent(e) {
+		return "", errInvalidRSAExponent
+	}
+
 	return fmt.Sprintf(rsaThumbprintTemplate,
 		newBufferFromInt(uint64(e)).base64(),
 		newBuffer(n.Bytes()).base64()), nil
@@ -668,11 +672,11 @@ func (k *JSONWebKey) Valid() bool {
 			return false
 		}
 	case *rsa.PublicKey:
-		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || !validRSAExponent(key.E) {
 			return false
 		}
 	case *rsa.PrivateKey:
-		if key == nil || key.N == nil || key.N.Sign() <= 0 || key.E <= 0 || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
+		if key == nil || key.N == nil || key.N.Sign() <= 0 || !validRSAExponent(key.E) || key.D == nil || len(key.Primes) < 2 || slices.Contains(key.Primes, nil) {
 			return false
 		}
 		if checkRSAPrivateParameters(key) != nil {
@@ -719,6 +723,10 @@ func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, n and e must be positive")
 	}
 
+	if !validRSAExponent(e) {
+		return nil, errInvalidRSAExponent
+	}
+
 	return &rsa.PublicKey{
 		N: n,
 		E: e,
@@ -737,9 +745,19 @@ func fromEdPublicKey(pub ed25519.PublicKey) (*rawJSONWebKey, error) {
 	}, nil
 }
 
+var errInvalidRSAExponent = errors.New("go-jose/go-jose: invalid RSA key, e must be odd and between 3 and 2^31-1")
+
+func validRSAExponent(e int) bool {
+	return e >= 3 && e%2 == 1 && e <= 1<<31-1
+}
+
 func fromRsaPublicKey(pub *rsa.PublicKey) (*rawJSONWebKey, error) {
 	if pub == nil || pub.N == nil || pub.N.Sign() <= 0 || pub.E <= 0 {
 		return nil, errors.New("go-jose/go-jose: invalid RSA key (nil, or n/e missing)")
+	}
+
+	if !validRSAExponent(pub.E) {
+		return nil, errInvalidRSAExponent
 	}
 
 	return &rawJSONWebKey{
@@ -906,6 +924,10 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 	e, err := key.E.toInt()
 	if err != nil {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA private key, e is out of range: %w", err)
+	}
+
+	if !validRSAExponent(e) {
+		return nil, errInvalidRSAExponent
 	}
 
 	rv := &rsa.PrivateKey{
