@@ -488,7 +488,11 @@ func TestBuilderSignedAndEncryptedAcceptsContentTypeInAnyForm(t *testing.T) {
 		{"ShouldAcceptContentType", (&jose.EncrypterOptions{}).WithContentType("JWT"), true},
 		{"ShouldAcceptLowercaseContentType", (&jose.EncrypterOptions{}).WithContentType("jwt"), true},
 		{"ShouldAcceptPlainString", (&jose.EncrypterOptions{}).WithHeader(jose.HeaderContentType, "JWT"), true},
+		{"ShouldAcceptMediaType", (&jose.EncrypterOptions{}).WithContentType("application/jwt"), true},
+		{"ShouldAcceptMediaTypeInAnyCase", (&jose.EncrypterOptions{}).WithContentType("Application/JWT"), true},
 		{"ShouldRejectOtherContentType", (&jose.EncrypterOptions{}).WithContentType("application/json"), false},
+		{"ShouldRejectOtherMediaTypeTree", (&jose.EncrypterOptions{}).WithContentType("text/jwt"), false},
+		{"ShouldRejectPrefixRepeated", (&jose.EncrypterOptions{}).WithContentType("application/application/jwt"), false},
 		{"ShouldRejectMissingContentType", nil, false},
 	}
 
