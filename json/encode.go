@@ -36,8 +36,6 @@
 //   - When parsing a JSON object into a Go struct, unknown keys in the JSON
 //     object are ignored (unless a [Decoder] is used and
 //     [Decoder.DisallowUnknownFields] has been called).
-//   - Invalid UTF-8 bytes in JSON strings are replaced by the Unicode
-//     replacement character.
 //   - Large JSON number integers will lose precision when unmarshaled into
 //     floating-point types.
 package json
@@ -77,8 +75,8 @@ import (
 // Floating point, integer, and [Number] values encode as JSON numbers.
 // NaN and +/-Inf values will return an [UnsupportedValueError].
 //
-// String values encode as JSON strings coerced to valid UTF-8,
-// replacing invalid bytes with the Unicode replacement rune.
+// String values encode as JSON strings. A string which is not valid
+// UTF-8 returns an [InvalidUTF8Error].
 // So that the JSON will be safe to embed inside HTML <script> tags,
 // the string is encoded using [HTMLEscape],
 // which replaces "<", ">", "&", U+2028, and U+2029 are escaped
@@ -262,12 +260,10 @@ func (e *UnsupportedValueError) Error() string {
 	return "json: unsupported value: " + e.Str
 }
 
-// Before Go 1.2, an InvalidUTF8Error was returned by [Marshal] when
-// attempting to encode a string value with invalid UTF-8 sequences.
-// As of Go 1.2, [Marshal] instead coerces the string to valid UTF-8 by
-// replacing invalid bytes with the Unicode replacement rune U+FFFD.
-//
-// Deprecated: No longer used; kept for compatibility.
+// An InvalidUTF8Error is returned by [Marshal] when attempting to encode a
+// string value with invalid UTF-8 sequences. Unlike encoding/json, which
+// replaces invalid bytes with the Unicode replacement rune U+FFFD, this
+// package refuses them, as RFC 7493 Section 2.1 excludes them from I-JSON.
 type InvalidUTF8Error struct {
 	S string // the whole string value that caused the error
 }
@@ -529,6 +525,7 @@ func textMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	if err != nil {
 		e.error(&MarshalerError{v.Type(), err, "MarshalText"})
 	}
+	checkValidUnicode(e, b)
 	e.Write(appendString(e.AvailableBuffer(), b, opts.escapeHTML))
 }
 
@@ -543,6 +540,7 @@ func addrTextMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 	if err != nil {
 		e.error(&MarshalerError{v.Type(), err, "MarshalText"})
 	}
+	checkValidUnicode(e, b)
 	e.Write(appendString(e.AvailableBuffer(), b, opts.escapeHTML))
 }
 
@@ -629,6 +627,7 @@ func stringEncoder(e *encodeState, v reflect.Value, opts encOpts) {
 		e.Write(b)
 		return
 	}
+	checkValidUnicode(e, v.String())
 	if opts.quoted {
 		b := appendString(nil, v.String(), opts.escapeHTML)
 		e.Write(appendString(e.AvailableBuffer(), b, false)) // no need to escape again since it is already escaped
@@ -792,6 +791,7 @@ func (me mapEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
 		if sv[i].ks, err = resolveKeyName(mi.Key()); err != nil {
 			e.error(fmt.Errorf("json: encoding error for type %q: %q", v.Type().String(), err.Error()))
 		}
+		checkValidUnicode(e, sv[i].ks)
 		sv[i].v = mi.Value()
 	}
 	slices.SortFunc(sv, func(i, j reflectWithString) int {
@@ -997,6 +997,12 @@ func resolveKeyName(k reflect.Value) (string, error) {
 		return strconv.FormatUint(k.Uint(), 10), nil
 	}
 	panic("unexpected map key type")
+}
+
+func checkValidUnicode[Bytes []byte | string](e *encodeState, s Bytes) {
+	if !utf8.ValidString(string(s)) {
+		e.error(&InvalidUTF8Error{S: string(s)})
+	}
 }
 
 func appendString[Bytes []byte | string](dst []byte, src Bytes, escapeHTML bool) []byte {

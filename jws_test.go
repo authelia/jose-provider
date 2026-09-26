@@ -857,6 +857,26 @@ func TestParseSignedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) 
 	}
 }
 
+// RFC 7493 Section 2.1.
+func TestJWSHeaderRejectsInvalidUnicode(t *testing.T) {
+	for _, header := range []string{`{"alg":"HS256","kid":"\ud800"}`, "{\"alg\":\"HS256\",\"kid\":\"a\xffb\"}"} {
+		input := base64.RawURLEncoding.EncodeToString([]byte(header)) + ".cGF5bG9hZA.AAAA"
+
+		if _, err := ParseSignedCompact(input, []SignatureAlgorithm{HS256}); err == nil {
+			t.Errorf("ParseSignedCompact accepted the header %q", header)
+		}
+	}
+
+	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: bytes.Repeat([]byte{1}, 32)}, (&SignerOptions{}).WithHeader("x", "a\xffb"))
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	if _, err = signer.Sign([]byte("payload")); err == nil {
+		t.Error("Sign accepted a header value which is not valid UTF-8")
+	}
+}
+
 func BenchmarkParseSignedCompat(b *testing.B) {
 	raw := `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJpc3N1ZXIiLCJzdWIiOiJzdWJqZWN0In0.OFD0iVfPczqWBA_TRi1jGB5PF699eekcHt4D6qNoimc`
 

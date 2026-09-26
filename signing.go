@@ -374,7 +374,11 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 			protected[k] = v
 		}
 
-		serializedProtected := mustSerializeJSON(protected)
+		serializedProtected, err := json.Marshal(protected)
+		if err != nil {
+			return nil, err
+		}
+
 		needsBase64 := true
 
 		if b64, ok := protected[headerB64]; ok {

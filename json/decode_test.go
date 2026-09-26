@@ -435,7 +435,7 @@ var unmarshalTests = []struct {
 	{CaseName: Name(""), in: `"a\u1234"`, ptr: new(string), out: "a\u1234"},
 	{CaseName: Name(""), in: `"http:\/\/"`, ptr: new(string), out: "http://"},
 	{CaseName: Name(""), in: `"g-clef: \uD834\uDD1E"`, ptr: new(string), out: "g-clef: \U0001D11E"},
-	{CaseName: Name(""), in: `"invalid: \uD834x\uDD1E"`, ptr: new(string), out: "invalid: \uFFFDx\uFFFD"},
+	{CaseName: Name(""), in: `"invalid: \uD834x\uDD1E"`, ptr: new(string), err: ErrInvalidUnicode},
 	{CaseName: Name(""), in: "null", ptr: new(any), out: nil},
 	{CaseName: Name(""), in: `{"X": [1,2,3], "Y": 4}`, ptr: new(T), out: T{Y: 4}, err: &UnmarshalTypeError{"array", reflect.TypeFor[string](), 7, "T", "X"}},
 	{CaseName: Name(""), in: `{"X": 23}`, ptr: new(T), out: T{}, err: &UnmarshalTypeError{"number", reflect.TypeFor[string](), 8, "T", "X"}},
@@ -714,48 +714,48 @@ var unmarshalTests = []struct {
 		out: DoublePtr{I: nil, J: nil},
 	},
 
-	// invalid UTF-8 is coerced to valid UTF-8.
+	// RFC 7493 Section 2.1.
 	{
 		CaseName: Name(""),
 		in:       "\"hello\xffworld\"",
 		ptr:      new(string),
-		out:      "hello\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\xc2\xc2world\"",
 		ptr:      new(string),
-		out:      "hello\ufffd\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\xc2\xffworld\"",
 		ptr:      new(string),
-		out:      "hello\ufffd\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\\ud800world\"",
 		ptr:      new(string),
-		out:      "hello\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\\ud800\\ud800world\"",
 		ptr:      new(string),
-		out:      "hello\ufffd\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\\ud800\\ud800world\"",
 		ptr:      new(string),
-		out:      "hello\ufffd\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 	{
 		CaseName: Name(""),
 		in:       "\"hello\xed\xa0\x80\xed\xb0\x80world\"",
 		ptr:      new(string),
-		out:      "hello\ufffd\ufffd\ufffd\ufffd\ufffd\ufffdworld",
+		err:      ErrInvalidUnicode,
 	},
 
 	// Used to be issue 8305, but time.Time implements encoding.TextUnmarshaler so this works now.
@@ -1322,16 +1322,24 @@ func TestMarshalInvalidUTF8(t *testing.T) {
 		in   string
 		want string
 	}{
-		{Name(""), "hello\xffworld", `"hello\ufffdworld"`},
+		{Name(""), "hello\xffworld", ""},
 		{Name(""), "", `""`},
-		{Name(""), "\xff", `"\ufffd"`},
-		{Name(""), "\xff\xff", `"\ufffd\ufffd"`},
-		{Name(""), "a\xffb", `"a\ufffdb"`},
-		{Name(""), "\xe6\x97\xa5\xe6\x9c\xac\xff\xaa\x9e", `"日本\ufffd\ufffd\ufffd"`},
+		{Name(""), "\xff", ""},
+		{Name(""), "\xff\xff", ""},
+		{Name(""), "a\xffb", ""},
+		{Name(""), "\xe6\x97\xa5\xe6\x9c\xac\xff\xaa\x9e", ""},
+		{Name(""), "\xed\xa0\x80", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			got, err := Marshal(tt.in)
+			if tt.want == "" {
+				var iue *InvalidUTF8Error
+				if !errors.As(err, &iue) || iue.S != tt.in {
+					t.Errorf("%s: Marshal(%q):\n\tgot:  (%q, %v)\n\twant: InvalidUTF8Error", tt.Where, tt.in, got, err)
+				}
+				return
+			}
 			if string(got) != tt.want || err != nil {
 				t.Errorf("%s: Marshal(%q):\n\tgot:  (%q, %v)\n\twant: (%q, nil)", tt.Where, tt.in, got, err, tt.want)
 			}
