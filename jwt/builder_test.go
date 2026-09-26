@@ -341,6 +341,21 @@ func TestBuilderHeadersEncrypter(t *testing.T) {
 	}
 }
 
+// RFC 7519 Section 7.1.
+func TestBuilderRejectsUnencodedPayloadSigner(t *testing.T) {
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: sharedKey}, (&jose.SignerOptions{}).WithBase64(false))
+	require.NoError(t, err)
+
+	encrypter, err := jose.NewEncrypter(jose.A128GCM, jose.Recipient{Algorithm: jose.DIRECT, Key: sharedEncryptionKey}, (&jose.EncrypterOptions{}).WithContentType("JWT"))
+	require.NoError(t, err)
+
+	_, err = Signed(signer).Claims(&testClaims{"foo"}).Serialize()
+	assert.ErrorIs(t, err, ErrUnencodedPayload)
+
+	_, err = SignedAndEncrypted(signer, encrypter).Claims(&testClaims{"foo"}).Serialize()
+	assert.ErrorIs(t, err, ErrUnencodedPayload)
+}
+
 func BenchmarkMapClaims(b *testing.B) {
 	m := map[string]any{
 		"sub": "42",

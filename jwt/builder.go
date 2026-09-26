@@ -77,6 +77,14 @@ type nestedBuilder struct {
 
 // Signed creates builder for signed tokens.
 func Signed(sig jose.Signer) Builder {
+	if isUnencoded(sig.Options().ExtraHeaders) {
+		return &signedBuilder{
+			builder: builder{
+				err: ErrUnencodedPayload,
+			},
+		}
+	}
+
 	return &signedBuilder{
 		sig: sig,
 	}
@@ -99,6 +107,15 @@ func SignedAndEncrypted(sig jose.Signer, enc jose.Encrypter) NestedBuilder {
 			},
 		}
 	}
+
+	if isUnencoded(sig.Options().ExtraHeaders) {
+		return &nestedBuilder{
+			builder: builder{
+				err: ErrUnencodedPayload,
+			},
+		}
+	}
+
 	return &nestedBuilder{
 		sig: sig,
 		enc: enc,

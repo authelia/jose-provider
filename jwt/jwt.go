@@ -100,6 +100,10 @@ func ParseSigned(s string, signatureAlgorithms []jose.SignatureAlgorithm) (*JSON
 	}
 	headers := make([]jose.Header, len(sig.Signatures))
 	for i, signature := range sig.Signatures {
+		if isUnencoded(signature.Header.ExtraHeaders) {
+			return nil, ErrUnencodedPayload
+		}
+
 		headers[i] = signature.Header
 	}
 
@@ -216,6 +220,12 @@ func isJSONObject(data []byte) bool {
 	}
 
 	return false
+}
+
+func isUnencoded(headers map[jose.HeaderKey]any) bool {
+	b64, ok := headers["b64"]
+
+	return ok && b64 == false
 }
 
 func isNestedContentType(v any) bool {
