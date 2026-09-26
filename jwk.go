@@ -1082,6 +1082,13 @@ const (
 	jwkUseEncryption = "enc"
 )
 
+var (
+	jwkOpsSign    = []string{"sign"}
+	jwkOpsVerify  = []string{"verify"}
+	jwkOpsEncrypt = []string{"encrypt", "wrapKey", "deriveKey"}
+	jwkOpsDecrypt = []string{"decrypt", "unwrapKey", "deriveKey"}
+)
+
 var jwkKeyOpsUse = map[string]string{
 	"sign":       jwkUseSignature,
 	"verify":     jwkUseSignature,
@@ -1118,7 +1125,7 @@ func checkKeyOps(use string, keyOps []string) error {
 // distinct, so a set which reuses one across an encryption key and a signing key, or across two algorithms, is
 // well formed. Candidates are therefore narrowed by the "use" and "alg" members of each JWK rather than resolved
 // to a single key here, and the caller tries each in turn.
-func tryJWKS(key any, header Header, use string) ([]any, error) {
+func tryJWKS(key any, header Header, use string, ops []string) ([]any, error) {
 	var jwks JSONWebKeySet
 
 	switch jwksType := key.(type) {
@@ -1128,7 +1135,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 		jwks = jwksType
 	default:
 		// If the specified key is not a JWKS, return as is.
-		if err := checkSuitableJWK(key, use, header.Algorithm); err != nil {
+		if err := checkSuitableJWK(key, use, header.Algorithm, ops); err != nil {
 			return nil, err
 		}
 
@@ -1145,7 +1152,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 	var keys []any
 
 	for _, jwk := range jwks.Key(kid) {
-		if !jwk.suitableFor(use, header.Algorithm) {
+		if !jwk.suitableFor(use, header.Algorithm, ops) {
 			continue
 		}
 
@@ -1159,7 +1166,7 @@ func tryJWKS(key any, header Header, use string) ([]any, error) {
 	return keys, nil
 }
 
-func checkSuitableJWK(key any, use, alg string) error {
+func checkSuitableJWK(key any, use, alg string, ops []string) error {
 	var jwk *JSONWebKey
 
 	switch k := key.(type) {
@@ -1169,7 +1176,7 @@ func checkSuitableJWK(key any, use, alg string) error {
 		jwk = k
 	}
 
-	if jwk == nil || jwk.suitableFor(use, alg) {
+	if jwk == nil || jwk.suitableFor(use, alg, ops) {
 		return nil
 	}
 
@@ -1181,8 +1188,12 @@ func checkSuitableJWK(key any, use, alg string) error {
 // RFC 7517 Section 4.2 and Section 4.4 make the "use" and "alg" members optional, and both are advisory rather
 // than binding on the recipient. A key which omits one is therefore a candidate whatever the message asks for;
 // only a key which states a purpose or an algorithm and contradicts the message is dropped.
-func (k JSONWebKey) suitableFor(use, alg string) bool {
+func (k JSONWebKey) suitableFor(use, alg string, ops []string) bool {
 	if k.Use != "" && use != "" && k.Use != use {
+		return false
+	}
+
+	if len(k.KeyOps) != 0 && !slices.ContainsFunc(k.KeyOps, func(op string) bool { return slices.Contains(ops, op) }) {
 		return false
 	}
 

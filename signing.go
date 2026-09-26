@@ -341,7 +341,7 @@ func makeJWSRecipient(alg SignatureAlgorithm, signingKey any) (recipientSigInfo,
 }
 
 func newJWKSigner(alg SignatureAlgorithm, signingKey JSONWebKey) (recipientSigInfo, error) {
-	if err := checkSuitableJWK(signingKey, jwkUseSignature, string(alg)); err != nil {
+	if err := checkSuitableJWK(signingKey, jwkUseSignature, string(alg), jwkOpsSign); err != nil {
 		return recipientSigInfo{}, err
 	}
 
@@ -561,7 +561,7 @@ func (obj JSONWebSignature) DetachedVerify(payload []byte, verificationKey any) 
 		}
 	}
 
-	keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature)
+	keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature, jwkOpsVerify)
 	if err != nil {
 		return err
 	}
@@ -657,7 +657,7 @@ func (obj JSONWebSignature) DetachedVerifyMulti(payload []byte, verificationKey 
 
 		// If the verification key is a JWK Set, narrow it to the keys this signature's "kid" and "alg"
 		// admit. If none match, skip this signature.
-		keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature)
+		keys, err := tryJWKS(verificationKey, signature.Header, jwkUseSignature, jwkOpsVerify)
 		if err != nil {
 			continue
 		}

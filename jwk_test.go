@@ -964,6 +964,67 @@ func TestJWKKeyOps(t *testing.T) {
 	}
 }
 
+// RFC 7517 Section 4.3.
+func TestJWKKeyOpsAreEnforced(t *testing.T) {
+	macKey := bytes.Repeat([]byte{1}, 32)
+	kekKey := bytes.Repeat([]byte{2}, 16)
+
+	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: macKey}, nil)
+	require.NoError(t, err)
+
+	jws, err := signer.Sign([]byte("payload"))
+	require.NoError(t, err)
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: kekKey}, nil)
+	require.NoError(t, err)
+
+	jwe, err := encrypter.Encrypt([]byte("payload"))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name                           string
+		keyOps                         []string
+		sign, verify, encrypt, decrypt bool
+	}{
+		{"Signing", []string{"sign", "verify"}, true, true, false, false},
+		{"VerifyOnly", []string{"verify"}, false, true, false, false},
+		{"SignOnly", []string{"sign"}, true, false, false, false},
+		{"KeyWrapping", []string{"wrapKey", "unwrapKey"}, false, false, true, true},
+		{"UnwrapOnly", []string{"unwrapKey"}, false, false, false, true},
+		{"Encryption", []string{"encrypt", "decrypt"}, false, false, true, true},
+		{"Unregistered", []string{"attest"}, false, false, false, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			check := func(op string, want bool, err error) {
+				t.Helper()
+
+				if want && err != nil {
+					t.Errorf("%s: %v", op, err)
+				} else if !want && !errors.Is(err, ErrUnsuitableKey) {
+					t.Errorf("%s: got %v, want %v", op, err, ErrUnsuitableKey)
+				}
+			}
+
+			sigKey := JSONWebKey{Key: macKey, KeyOps: tc.keyOps}
+			encKey := JSONWebKey{Key: kekKey, KeyOps: tc.keyOps}
+
+			_, err := NewSigner(SigningKey{Algorithm: HS256, Key: sigKey}, nil)
+			check("NewSigner", tc.sign, err)
+
+			_, err = jws.Verify(sigKey)
+			check("Verify", tc.verify, err)
+
+			_, err = NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: encKey}, nil)
+			check("NewEncrypter", tc.encrypt, err)
+
+			_, err = jwe.Decrypt(encKey)
+			check("Decrypt", tc.decrypt, err)
+		})
+	}
+}
+
 // Test vectors from RFC 7520
 var cookbookJWKs = []string{
 	// EC Public
@@ -2039,7 +2100,7 @@ func TestTryJWKSCandidateSelection(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			keys, err := tryJWKS(&JSONWebKeySet{Keys: tc.keys}, tc.header, tc.use)
+			keys, err := tryJWKS(&JSONWebKeySet{Keys: tc.keys}, tc.header, tc.use, nil)
 
 			if tc.expectErr != nil {
 				assert.ErrorIs(t, err, tc.expectErr)
@@ -2061,7 +2122,7 @@ func TestTryJWKSCandidateSelection(t *testing.T) {
 }
 
 func TestTryJWKSPassesThroughNonSetKeys(t *testing.T) {
-	keys, err := tryJWKS(&rsaTestKey.PublicKey, Header{}, jwkUseSignature)
+	keys, err := tryJWKS(&rsaTestKey.PublicKey, Header{}, jwkUseSignature, jwkOpsVerify)
 
 	require.NoError(t, err)
 
