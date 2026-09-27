@@ -610,6 +610,11 @@ func (k *JSONWebKey) IsPublic() bool {
 }
 
 // Public creates JSONWebKey with corresponding public key if JWK represents asymmetric private key.
+//
+// The "key_ops" of a private key name the private side of each operation, which RFC 7517 Section 4.3 pairs with
+// a public side: "sign" with "verify", "decrypt" with "encrypt" and "unwrapKey" with "wrapKey". The returned key
+// lists the public side of each in their place, once each, so it permits the operations that undo the private
+// key's work. Every other value is kept as it is.
 func (k *JSONWebKey) Public() JSONWebKey {
 	switch key := k.Key.(type) {
 	case *ecdsa.PublicKey:
@@ -648,7 +653,34 @@ func (k *JSONWebKey) Public() JSONWebKey {
 		}
 		ret.Key = pub
 	}
+	ret.KeyOps = publicKeyOps(k.KeyOps)
 	return ret
+}
+
+var jwkPublicKeyOps = map[string]string{
+	"sign":      "verify",
+	"decrypt":   "encrypt",
+	"unwrapKey": "wrapKey",
+}
+
+func publicKeyOps(keyOps []string) []string {
+	if keyOps == nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(keyOps))
+
+	for _, op := range keyOps {
+		if public, ok := jwkPublicKeyOps[op]; ok {
+			op = public
+		}
+
+		if !slices.Contains(out, op) {
+			out = append(out, op)
+		}
+	}
+
+	return out
 }
 
 // Valid checks that the key contains the expected parameters.
