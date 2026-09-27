@@ -522,12 +522,8 @@ func (ctx *genericSigner) Sign(payload []byte) (*JSONWebSignature, error) {
 		}
 
 		signatureInfo.protected = &rawHeader{}
-		for k, v := range protected {
-			b, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("go-jose/go-jose: Error marshalling item %#v: %v", k, err)
-			}
-			(*signatureInfo.protected)[k] = makeRawMessage(b)
+		if err = json.Unmarshal(serializedProtected, signatureInfo.protected); err != nil {
+			return nil, err
 		}
 
 		if signatureInfo.Header, err = signatureInfo.protected.sanitized(); err != nil {

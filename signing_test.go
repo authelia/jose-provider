@@ -584,6 +584,21 @@ func TestWithCriticalAppendsToAnyExistingList(t *testing.T) {
 	}
 }
 
+func TestSignRejectsExtraHeaderTooDeepForTheParser(t *testing.T) {
+	key := []byte("0123456789ABCDEF0123456789ABCDEF")
+
+	deep := json.RawMessage(strings.Repeat("[", 10000) + strings.Repeat("]", 10000))
+
+	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, (&SignerOptions{}).WithHeader("ext", deep))
+	if err != nil {
+		return
+	}
+
+	if _, err = signer.Sign([]byte("payload")); err == nil {
+		t.Fatal("Sign accepted a header nested deeper than the parser allows")
+	}
+}
+
 func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 	switch sigAlg {
 	case EdDSA:

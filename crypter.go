@@ -133,6 +133,11 @@ type EncrypterOptions struct {
 	// "zip". "cty", "typ", "kid" and any extension parameter are the caller's to
 	// set, as are "apu" and "apv", which ECDH-ES reads from this map.
 	//
+	// "crit" is rejected as well, as no critical extension is supported when
+	// decrypting. Encrypt returns an error when a value here would produce a
+	// protected header that ParseEncrypted rejects, such as a "kid" which is
+	// not a string.
+	//
 	// [json.Marshal]: https://pkg.go.dev/encoding/json#Marshal
 	ExtraHeaders map[HeaderKey]any
 }
@@ -205,7 +210,7 @@ func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions)
 
 		// "enc" and "zip" are written into the protected header from the arguments to this call, and "alg" into
 		// each recipient header from the recipient itself.
-		if err := checkExtraHeaders(encrypter.extraHeaders, headerAlgorithm, headerEncryption, headerCompression); err != nil {
+		if err := checkExtraHeaders(encrypter.extraHeaders, headerAlgorithm, headerEncryption, headerCompression, headerCritical); err != nil {
 			return nil, err
 		}
 	}
@@ -316,7 +321,7 @@ func NewMultiEncrypter(enc ContentEncryption, rcpts []Recipient, opts *Encrypter
 
 		// "enc" and "zip" are written into the protected header from the arguments to this call, and "alg" into
 		// each recipient header from the recipient itself.
-		if err := checkExtraHeaders(encrypter.extraHeaders, headerAlgorithm, headerEncryption, headerCompression); err != nil {
+		if err := checkExtraHeaders(encrypter.extraHeaders, headerAlgorithm, headerEncryption, headerCompression, headerCritical); err != nil {
 			return nil, err
 		}
 	}
@@ -537,6 +542,10 @@ func (ctx *genericEncrypter) EncryptWithAuthData(plaintext, aad []byte) (*JSONWe
 			return nil, err
 		}
 		(*obj.protected)[k] = makeRawMessage(b)
+	}
+
+	if err = obj.protected.checkParses(); err != nil {
+		return nil, err
 	}
 
 	// Extra headers land in the protected header after the per-recipient headers

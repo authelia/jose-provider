@@ -153,6 +153,37 @@ func TestNumericDateUnmarshalRejectsValuesOutOfRange(t *testing.T) {
 	}
 }
 
+func TestNumericDateMarshalRejectsValuesUnmarshalRejects(t *testing.T) {
+	testCases := []struct {
+		name string
+		have NumericDate
+		err  error
+	}{
+		{"ShouldRejectMaxInt64", math.MaxInt64, ErrNumericDateOutOfRange},
+		{"ShouldRejectRoundingToMaxInt64", math.MaxInt64 - 511, ErrNumericDateOutOfRange},
+		{"ShouldRejectMinInt64", math.MinInt64, ErrNumericDateOutOfRange},
+		{"ShouldRejectRoundingToMinInt64", math.MinInt64 + 1, ErrNumericDateOutOfRange},
+		{"ShouldMarshalBelowMaxInt64", math.MaxInt64 - 1024, nil},
+		{"ShouldMarshalAboveMinInt64", math.MinInt64 + 1024, nil},
+		{"ShouldMarshalEpoch", 0, nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := tc.have.MarshalJSON()
+			assert.Equal(t, tc.err, err)
+
+			if err != nil {
+				return
+			}
+
+			var date NumericDate
+
+			assert.NoError(t, date.UnmarshalJSON(raw))
+		})
+	}
+}
+
 // time.Unix stores seconds relative to year 1, so a large positive number of seconds since the epoch overflows and
 // wraps around to a time in the past. Ordering must be preserved so that a date in the future never compares as one
 // in the past, which would silently skip the nbf and iat checks.
