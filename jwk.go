@@ -1189,6 +1189,10 @@ func fromEcPrivateKey(ec *ecdsa.PrivateKey) (*rawJSONWebKey, error) {
 }
 
 func ecPrivateKeyMatches(priv *ecdsa.PrivateKey) bool {
+	if priv.Curve == nil || priv.X == nil || priv.Y == nil || priv.D == nil {
+		return false
+	}
+
 	pub, err := priv.PublicKey.ECDH()
 	if err != nil {
 		return false
@@ -1512,6 +1516,10 @@ func validateEd25519PublicKey(publicKey ed25519.PublicKey) error {
 func validateEd25519PrivateKey(privateKey ed25519.PrivateKey) error {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return errors.New("go-jose/go-jose: invalid Ed25519 private key, wrong length")
+	}
+
+	if !ed25519HalvesMatch(privateKey) {
+		return errors.New("go-jose/go-jose: invalid Ed25519 private key, public half does not match the seed")
 	}
 
 	return nil

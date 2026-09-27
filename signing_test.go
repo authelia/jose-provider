@@ -19,12 +19,15 @@ package jose
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"reflect"
 	"runtime"
 	"strings"
@@ -596,6 +599,51 @@ func TestSignRejectsExtraHeaderTooDeepForTheParser(t *testing.T) {
 
 	if _, err = signer.Sign([]byte("payload")); err == nil {
 		t.Fatal("Sign accepted a header nested deeper than the parser allows")
+	}
+}
+
+func TestNewSignerRejectsMismatchedPrivateKey(t *testing.T) {
+	_, otherEd, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mismatchedEd := make(ed25519.PrivateKey, ed25519.PrivateKeySize)
+	copy(mismatchedEd, ed25519PrivateKey.Seed())
+	copy(mismatchedEd[32:], otherEd[32:])
+
+	otherEC, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mismatchedEC := &ecdsa.PrivateKey{PublicKey: otherEC.PublicKey, D: ecTestKey256.D}
+
+	mismatchedRSA := *rsaTestKey
+	mismatchedRSA.PublicKey.N = new(big.Int).Add(rsaTestKey.N, big.NewInt(2))
+
+	testCases := []struct {
+		name string
+		alg  SignatureAlgorithm
+		key  any
+	}{
+		{"Ed25519", EdDSA, mismatchedEd},
+		{"Ed25519WrongLength", EdDSA, ed25519PrivateKey[:32]},
+		{"ECDSA", ES256, mismatchedEC},
+		{"ECDSAMissingD", ES256, &ecdsa.PrivateKey{PublicKey: ecTestKey256.PublicKey}},
+		{"RSA", RS256, &mismatchedRSA},
+		{"RSAMissingPrimes", RS256, &rsa.PrivateKey{PublicKey: rsaTestKey.PublicKey, D: rsaTestKey.D}},
+		{"Ed25519JWK", EdDSA, &JSONWebKey{Key: mismatchedEd}},
+		{"ECDSAJWK", ES256, JSONWebKey{Key: mismatchedEC}},
+		{"RSAJWK", RS256, &JSONWebKey{Key: &mismatchedRSA}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := NewSigner(SigningKey{Algorithm: tc.alg, Key: tc.key}, nil); err == nil {
+				t.Fatal("NewSigner accepted a private key whose public half does not match")
+			}
+		})
 	}
 }
 
