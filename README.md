@@ -9,9 +9,8 @@
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/github/authelia/jose-provider/license.svg?logo=apache&logoColor=%23d22128&mode=dark&size=sm&variant=outline"><img alt="License" src="https://shieldcn.dev/github/authelia/jose-provider/license.svg?logo=apache&logoColor=%23d22128&mode=light&size=sm&variant=outline"></picture></a>
 </p>
 
-<p>
-  <a href="https://discord.authelia.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/discord/707844280412012608.svg?logo=discord&logoColor=%235865f2&mode=dark&size=sm&variant=outline"><img alt="Discord" src="https://shieldcn.dev/discord/707844280412012608.svg?logo=discord&logoColor=%235865f2&mode=light&size=sm&variant=outline"></picture></a>
-  <a href="https://matrix.to/#/#support:authelia.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/dynamic/json.svg?url=https%3A%2F%2Fimg.shields.io%2Fmatrix%2Fauthelia-support%3Amatrix.org.json&query=%24.message&label=matrix&logo=matrix&mode=dark&size=sm&variant=outline"><img alt="Matrix" src="https://shieldcn.dev/badge/dynamic/json.svg?url=https%3A%2F%2Fimg.shields.io%2Fmatrix%2Fauthelia-support%3Amatrix.org.json&query=%24.message&label=matrix&logo=matrix&mode=light&size=sm&variant=outline"></picture></a>
+<p align="center">
+  <img src=".github/logo.svg" width="200" alt="Go JOSE gopher">
 </p>
 
 This library implements the JavaScript Object Signing and Encryption (JOSE) family of specifications for Go: JSON Web
@@ -56,17 +55,18 @@ toolchain is rarely a breaking change.
 
 ### Signature Algorithms (JWS)
 
-| Algorithm                             | Supported | Specification          | Notes                                    |
-|:--------------------------------------|:---------:|:-----------------------|:-----------------------------------------|
-| `HS256`, `HS384`, `HS512`             |    ✅     | [RFC 7518]             | Key at least as long as the hash output  |
-| `RS256`, `RS384`, `RS512`             |    ✅     | [RFC 7518]             | RSA modulus of at least 2048 bits        |
-| `PS256`, `PS384`, `PS512`             |    ✅     | [RFC 7518]             | RSA modulus of at least 2048 bits        |
-| `ES256`, `ES384`, `ES512`             |    ✅     | [RFC 7518]             | P-256, P-384 and P-521 respectively      |
-| `EdDSA`, `Ed25519`                    |    ✅     | [RFC 8037], [RFC 9864] | Ed25519 only                             |
-| `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87` |    ✅     | [RFC 9964]             | Requires Go 1.27                         |
-| `ES256K`                              |    ❌     | [RFC 8812]             |                                          |
-| `Ed448`                               |    ❌     | [RFC 8037], [RFC 9864] |                                          |
-| `none`                                |    ❌     | [RFC 7518]             | Unsecured JWS is not supported by design |
+| Algorithm                             | Supported | Specification          | Notes                                                 |
+|:--------------------------------------|:---------:|:-----------------------|:------------------------------------------------------|
+| `HS256`, `HS384`, `HS512`             |    ✅     | [RFC 7518]             | Key at least as long as the hash output               |
+| `RS256`, `RS384`, `RS512`             |    ✅     | [RFC 7518]             | RSA modulus of at least 2048 bits                     |
+| `PS256`, `PS384`, `PS512`             |    ✅     | [RFC 7518]             | RSA modulus of at least 2048 bits                     |
+| `ES256`, `ES384`, `ES512`             |    ✅     | [RFC 7518]             | P-256, P-384 and P-521 respectively                   |
+| `EdDSA`                               |    ✅     | [RFC 8037], [RFC 9864] | Ed25519 only; deprecated, supported for compatibility |
+| `Ed25519`                             |    ✅     | [RFC 9864]             | Fully specified; preferred for new integrations       |
+| `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87` |    ✅     | [RFC 9964]             | Requires Go 1.27                                      |
+| `ES256K`                              |    ❌     | [RFC 8812]             |                                                       |
+| `Ed448`                               |    ❌     | [RFC 8037], [RFC 9864] |                                                       |
+| `none`                                |    ❌     | [RFC 7518]             | Unsecured JWS is not supported by design              |
 
 ### Key Management Algorithms (JWE)
 
@@ -113,6 +113,11 @@ toolchain is rarely a breaking change.
 | Encrypted tokens                                                              |    ✅     | [RFC 7519]    |
 | Nested (signed then encrypted) tokens                                         |    ✅     | [RFC 7519]    |
 | Registered claim validation (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`) |    ✅     | [RFC 7519]    |
+
+## Credits
+
+The gopher mascot is inspired by the Go gopher, designed by [Renée French](https://reneefrench.blogspot.com/) and
+licensed under the [Creative Commons 4.0 Attribution License](https://creativecommons.org/licenses/by/4.0/).
 
 [Authelia]: https://www.authelia.com
 [go-jose]: https://github.com/go-jose/go-jose
