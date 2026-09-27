@@ -19,8 +19,10 @@ package jose
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"testing"
@@ -174,6 +176,66 @@ func TestRoundtripsJWSOpaque(t *testing.T) {
 				t.Error(err, alg, i)
 			}
 		}
+	}
+}
+
+func TestOpaqueSignerRefusesAPublicKeyTheVerifierRejects(t *testing.T) {
+	smallRSA, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var lowOrder ed25519.PublicKey
+	for k := range weakEd25519PublicKeys {
+		lowOrder = ed25519.PublicKey(k[:])
+		break
+	}
+
+	testCases := []struct {
+		name string
+		alg  SignatureAlgorithm
+		key  any
+		err  error
+	}{
+		{"RSATooSmall", RS256, &smallRSA.PublicKey, ErrInvalidKeySize},
+		{"RSAEvenExponent", PS256, &rsa.PublicKey{N: rsaTestKey.N, E: 65536}, errInvalidRSAExponent},
+		{"ECDSACurveForAnotherAlgorithm", ES256, &ecTestKey384.PublicKey, nil},
+		{"Ed25519LowOrder", EdDSA, lowOrder, nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sw := &signWrapper{pk: &JSONWebKey{Key: tc.key}, algs: []SignatureAlgorithm{tc.alg}}
+
+			_, err := NewSigner(SigningKey{Algorithm: tc.alg, Key: sw}, nil)
+			if err == nil {
+				t.Fatal("NewSigner accepted a public key the verifier rejects")
+			}
+
+			if tc.err != nil && !errors.Is(err, tc.err) {
+				t.Errorf("NewSigner: got %v, want %v", err, tc.err)
+			}
+		})
+	}
+}
+
+func TestOpaqueSignerRefusesARotatedPublicKeyTheVerifierRejects(t *testing.T) {
+	sw := makeOpaqueSigner(t, rsaTestKey, RS256)
+
+	signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: sw}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	smallRSA, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sw.pk = &JSONWebKey{Key: &smallRSA.PublicKey}
+
+	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrInvalidKeySize) {
+		t.Errorf("Sign: got %v, want %v", err, ErrInvalidKeySize)
 	}
 }
 

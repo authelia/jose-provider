@@ -101,6 +101,17 @@ func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
 	}
 }
 
+func TestOpaqueRefusesAnRSAKeyTheVerifierRejects(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: Opaque(key)}, nil); !errors.Is(err, jose.ErrInvalidKeySize) {
+		t.Errorf("NewSigner: got %v, want %v", err, jose.ErrInvalidKeySize)
+	}
+}
+
 type staticNonceSource string
 
 func (sns staticNonceSource) Nonce() (string, error) {

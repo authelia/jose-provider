@@ -201,6 +201,42 @@ func TestNewEncrypterRejectsECDHESToAPointNotOnTheCurve(t *testing.T) {
 	}
 }
 
+// RFC 8017 Section 3.1.
+func TestRSAKeyWithInvalidExponentIsRefusedOnEveryPath(t *testing.T) {
+	for _, e := range []int{1, 2, 4, 65536} {
+		t.Run(fmt.Sprint(e), func(t *testing.T) {
+			priv := *rsaTestKey
+			priv.PublicKey = rsa.PublicKey{N: rsaTestKey.N, E: e}
+
+			if signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: &priv}, nil); err == nil {
+				if _, err = signer.Sign([]byte("payload")); !errors.Is(err, errInvalidRSAExponent) {
+					t.Errorf("Sign: got %v, want %v", err, errInvalidRSAExponent)
+				}
+			} else if !errors.Is(err, errInvalidRSAExponent) {
+				t.Errorf("NewSigner: got %v, want %v", err, errInvalidRSAExponent)
+			}
+
+			if encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: RSA_OAEP_256, Key: &priv.PublicKey}, nil); err == nil {
+				if _, err = encrypter.Encrypt([]byte("payload")); !errors.Is(err, errInvalidRSAExponent) {
+					t.Errorf("Encrypt: got %v, want %v", err, errInvalidRSAExponent)
+				}
+			} else if !errors.Is(err, errInvalidRSAExponent) {
+				t.Errorf("NewEncrypter: got %v, want %v", err, errInvalidRSAExponent)
+			}
+
+			verifier := rsaEncrypterVerifier{publicKey: &priv.PublicKey}
+			if err := verifier.verifyPayload([]byte("payload"), make([]byte, 256), RS256); !errors.Is(err, errInvalidRSAExponent) {
+				t.Errorf("verifyPayload: got %v, want %v", err, errInvalidRSAExponent)
+			}
+
+			decrypter := rsaDecrypterSigner{privateKey: &priv}
+			if _, err := decrypter.decrypt(make([]byte, 256), RSA_OAEP_256, randomKeyGenerator{size: 16}); !errors.Is(err, errInvalidRSAExponent) {
+				t.Errorf("decrypt: got %v, want %v", err, errInvalidRSAExponent)
+			}
+		})
+	}
+}
+
 type failingKeyGenerator struct{}
 
 func (ctx failingKeyGenerator) keySize() int {
