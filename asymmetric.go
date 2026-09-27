@@ -143,6 +143,14 @@ func newRSASigner(sigAlg SignatureAlgorithm, privateKey *rsa.PrivateKey) (recipi
 		return recipientSigInfo{}, errors.New("invalid private key")
 	}
 
+	if err := checkRSAPrivateKey(privateKey); err != nil {
+		return recipientSigInfo{}, err
+	}
+
+	if err := checkRSAPrivateParameters(privateKey); err != nil {
+		return recipientSigInfo{}, err
+	}
+
 	return recipientSigInfo{
 		sigAlg: sigAlg,
 		publicKey: staticPublicKey(&JSONWebKey{
@@ -172,6 +180,11 @@ func newEd25519Signer(sigAlg SignatureAlgorithm, privateKey ed25519.PrivateKey) 
 	if privateKey == nil {
 		return recipientSigInfo{}, errors.New("invalid private key")
 	}
+
+	if err := validateEd25519PrivateKey(privateKey); err != nil {
+		return recipientSigInfo{}, err
+	}
+
 	return recipientSigInfo{
 		sigAlg: sigAlg,
 		publicKey: staticPublicKey(&JSONWebKey{
@@ -219,6 +232,10 @@ func newECDSASigner(sigAlg SignatureAlgorithm, privateKey *ecdsa.PrivateKey) (re
 
 	if privateKey == nil {
 		return recipientSigInfo{}, errors.New("invalid private key")
+	}
+
+	if !ecPrivateKeyMatches(privateKey) {
+		return recipientSigInfo{}, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
 	}
 
 	return recipientSigInfo{
