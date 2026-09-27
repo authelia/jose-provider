@@ -1363,6 +1363,82 @@ func TestEd25519Serialization(t *testing.T) {
 		jwk2.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey))
 }
 
+func TestPublicMapsKeyOpsToThePublicOperations(t *testing.T) {
+	testCases := []struct {
+		name string
+		key  any
+		have []string
+		want []string
+	}{
+		{"Sign", ecTestKey256, []string{"sign"}, []string{"verify"}},
+		{"SignAndVerify", ecTestKey256, []string{"sign", "verify"}, []string{"verify"}},
+		{"VerifyAndSign", ed25519PrivateKey, []string{"verify", "sign"}, []string{"verify"}},
+		{"Decrypt", rsaTestKey, []string{"decrypt"}, []string{"encrypt"}},
+		{"EncryptAndDecrypt", rsaTestKey, []string{"encrypt", "decrypt"}, []string{"encrypt"}},
+		{"UnwrapKey", rsaTestKey, []string{"unwrapKey"}, []string{"wrapKey"}},
+		{"WrapKeyAndUnwrapKey", rsaTestKey, []string{"wrapKey", "unwrapKey"}, []string{"wrapKey"}},
+		{"DeriveKey", ecTestKey256, []string{"deriveKey"}, []string{"deriveKey"}},
+		{"DeriveBits", ecTestKey256, []string{"deriveBits"}, []string{"deriveBits"}},
+		{"Unregistered", ecTestKey256, []string{"custom"}, []string{"custom"}},
+		{"Absent", ecTestKey256, nil, nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			have := append([]string(nil), tc.have...)
+			jwk := JSONWebKey{Key: tc.key, KeyOps: have}
+
+			public := jwk.Public()
+
+			if !reflect.DeepEqual(public.KeyOps, tc.want) {
+				t.Errorf("Public().KeyOps = %#v, want %#v", public.KeyOps, tc.want)
+			}
+
+			if !reflect.DeepEqual(jwk.KeyOps, tc.have) {
+				t.Errorf("KeyOps of the private key changed to %#v", jwk.KeyOps)
+			}
+
+			if _, err := public.MarshalJSON(); err != nil {
+				t.Errorf("MarshalJSON: %v", err)
+			}
+		})
+	}
+}
+
+func TestPublicOfAKeyWithKeyOpsCanUndoItsWork(t *testing.T) {
+	signing := JSONWebKey{Key: ecTestKey256, Use: "sig", KeyOps: []string{"sign"}}
+
+	signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: signing}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := signer.Sign([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = obj.Verify(signing.Public()); err != nil {
+		t.Errorf("Verify: %v", err)
+	}
+
+	decrypting := JSONWebKey{Key: rsaTestKey, Use: "enc", KeyOps: []string{"unwrapKey"}}
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: RSA_OAEP_256, Key: decrypting.Public()}, nil)
+	if err != nil {
+		t.Fatalf("NewEncrypter: %v", err)
+	}
+
+	encrypted, err := encrypter.Encrypt([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = encrypted.Decrypt(decrypting); err != nil {
+		t.Errorf("Decrypt: %v", err)
+	}
+}
+
 type fakeOpaqueSigner struct {
 	signer crypto.Signer
 }
