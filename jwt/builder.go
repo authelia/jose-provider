@@ -19,6 +19,7 @@ package jwt
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 
 	"authelia.com/provider/jose"
@@ -32,6 +33,10 @@ type Builder interface {
 	// into single JSON object. If you are passing private claims, make sure to set
 	// struct field tags to specify the name for the JSON key to be used when
 	// serializing.
+	//
+	// The merged claims must decode into Claims, so a registered claim of the
+	// wrong type, such as an "exp" which is not a number, fails with
+	// ErrInvalidClaims when the token is built.
 	Claims(i any) Builder
 	// Token builds a JSONWebToken from provided data.
 	Token() (*JSONWebToken, error)
@@ -47,6 +52,10 @@ type NestedBuilder interface {
 	// into single JSON object. If you are passing private claims, make sure to set
 	// struct field tags to specify the name for the JSON key to be used when
 	// serializing.
+	//
+	// The merged claims must decode into Claims, so a registered claim of the
+	// wrong type, such as an "exp" which is not a number, fails with
+	// ErrInvalidClaims when the token is built.
 	Claims(i any) NestedBuilder
 	// Token builds a NestedJSONWebToken from provided data.
 	Token() (*NestedJSONWebToken, error)
@@ -178,6 +187,19 @@ func (b *builder) merge(m map[string]any) builder {
 	}
 }
 
+func (b *builder) serialize() ([]byte, error) {
+	p, err := json.Marshal(b.payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = json.Unmarshal(p, &Claims{}); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidClaims, err)
+	}
+
+	return p, nil
+}
+
 func (b *builder) token(p func(any) ([]byte, error), h []jose.Header) (*JSONWebToken, error) {
 	return &JSONWebToken{
 		payload: p,
@@ -220,7 +242,7 @@ func (b *signedBuilder) sign() (*jose.JSONWebSignature, error) {
 		return nil, b.err
 	}
 
-	p, err := json.Marshal(b.payload)
+	p, err := b.serialize()
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +280,7 @@ func (b *encryptedBuilder) encrypt() (*jose.JSONWebEncryption, error) {
 		return nil, b.err
 	}
 
-	p, err := json.Marshal(b.payload)
+	p, err := b.serialize()
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +334,7 @@ func (b *nestedBuilder) signAndEncrypt() (*jose.JSONWebEncryption, error) {
 		return nil, b.err
 	}
 
-	p, err := json.Marshal(b.payload)
+	p, err := b.serialize()
 	if err != nil {
 		return nil, err
 	}

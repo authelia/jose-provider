@@ -158,6 +158,81 @@ func TestEncryptRejectsExtraHeadersTheOperationDetermines(t *testing.T) {
 	}
 }
 
+func TestEncryptRejectsExtraHeadersTheRecipientRejects(t *testing.T) {
+	key := []byte("0123456789ABCDEF")
+
+	testCases := []struct {
+		name  string
+		value any
+		key   HeaderKey
+	}{
+		{"Critical", []string{"exp"}, headerCritical},
+		{"CriticalNull", nil, headerCritical},
+		{"KeyIDNotString", 123, headerKeyID},
+		{"NonceNotString", 1, headerNonce},
+		{"JWKNotObject", "x", headerJWK},
+		{"X5CNotBase64", []string{"abc"}, headerX5c},
+		{"NumberOutOfRange", json.Number("1e400"), "ext"},
+		{"DuplicateKeys", json.RawMessage(`{"a":1,"a":2}`), "ext"},
+		{"LoneSurrogate", json.RawMessage(`"\ud800"`), "ext"},
+		{"TooDeep", json.RawMessage(strings.Repeat("[", 10000) + strings.Repeat("]", 10000)), "ext"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := (&EncrypterOptions{}).WithHeader(tc.key, tc.value)
+
+			encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: key}, opts)
+			if err != nil {
+				return
+			}
+
+			if _, err = encrypter.Encrypt([]byte("payload")); err == nil {
+				t.Fatal("Encrypt accepted an extra header the recipient rejects")
+			}
+
+			multi, err := NewMultiEncrypter(A128GCM, []Recipient{{Algorithm: A128KW, Key: key}, {Algorithm: A128KW, Key: key}}, opts)
+			if err != nil {
+				return
+			}
+
+			if _, err = multi.Encrypt([]byte("payload")); err == nil {
+				t.Fatal("Encrypt accepted an extra header the recipient rejects")
+			}
+		})
+	}
+}
+
+func TestEncryptExtraHeadersRoundTrip(t *testing.T) {
+	key := []byte("0123456789ABCDEF")
+
+	opts := (&EncrypterOptions{}).WithType("JWT").WithHeader("ext", map[string]any{"a": []any{1, "b"}})
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: key}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	object, err := encrypter.Encrypt([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serialized, err := object.CompactSerialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = parsed.Decrypt(key); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func RoundtripJWE(keyAlg KeyAlgorithm, encAlg ContentEncryption, compressionAlg CompressionAlgorithm, serializer func(*JSONWebEncryption) (string, error), corrupter func(*JSONWebEncryption) bool, aad []byte, encryptionKey any, decryptionKey any) error {
 	var rcpt Recipient
 	switch keyAlg {

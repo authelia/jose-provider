@@ -434,6 +434,25 @@ func checkExtraHeaders(extra map[HeaderKey]any, reserved ...HeaderKey) error {
 	return nil
 }
 
+func (parsed rawHeader) checkParses() error {
+	raw, err := json.Marshal(parsed)
+	if err != nil {
+		return err
+	}
+
+	var header rawHeader
+
+	if err = json.Unmarshal(raw, &header); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid protected header: %w", err)
+	}
+
+	if _, err = header.sanitized(); err != nil {
+		return fmt.Errorf("go-jose/go-jose: invalid protected header: %w", err)
+	}
+
+	return nil
+}
+
 // checkNoCritical verifies there are no critical headers present.
 func (parsed rawHeader) checkNoCritical() error {
 	if _, ok := parsed[headerCritical]; ok {

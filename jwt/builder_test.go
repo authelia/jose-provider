@@ -27,6 +27,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -354,6 +355,51 @@ func TestBuilderRejectsUnencodedPayloadSigner(t *testing.T) {
 
 	_, err = SignedAndEncrypted(signer, encrypter).Claims(&testClaims{"foo"}).Serialize()
 	assert.ErrorIs(t, err, ErrUnencodedPayload)
+}
+
+func TestBuilderRejectsClaimsTheParserRejects(t *testing.T) {
+	signer := mustMakeSigner(jose.HS256, sharedKey)
+
+	testCases := []struct {
+		name   string
+		claims any
+	}{
+		{"DuplicateKeys", map[string]any{"ext": json.RawMessage(`{"a":1,"a":2}`)}},
+		{"TooDeep", map[string]any{"ext": json.RawMessage(strings.Repeat("[", 10000) + strings.Repeat("]", 10000))}},
+		{"ExpiryString", map[string]any{"exp": "123"}},
+		{"IssuerNumber", map[string]any{"iss": 1}},
+		{"AudienceNumber", map[string]any{"aud": 1}},
+		{"AudienceNull", map[string]any{"aud": nil}},
+		{"ExpiryStringInStruct", struct {
+			Expiry string `json:"exp"`
+		}{"123"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Signed(signer).Claims(tc.claims).Serialize()
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestBuilderNilAudienceRoundTrips(t *testing.T) {
+	signer := mustMakeSigner(jose.HS256, sharedKey)
+
+	claims := struct {
+		Audience Audience `json:"aud"`
+	}{}
+
+	raw, err := Signed(signer).Claims(claims).Serialize()
+	require.NoError(t, err)
+
+	token, err := ParseSigned(raw, []jose.SignatureAlgorithm{jose.HS256})
+	require.NoError(t, err)
+
+	var out Claims
+
+	require.NoError(t, token.Claims(sharedKey, &out))
+	assert.Len(t, out.Audience, 0)
 }
 
 func BenchmarkMapClaims(b *testing.B) {

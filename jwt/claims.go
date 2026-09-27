@@ -63,6 +63,10 @@ func NewNumericDate(t time.Time) *NumericDate {
 
 // MarshalJSON serializes the given NumericDate into its JSON representation.
 func (n NumericDate) MarshalJSON() ([]byte, error) {
+	if f := float64(n); f >= float64(math.MaxInt64) || f <= float64(math.MinInt64) {
+		return nil, ErrNumericDateOutOfRange
+	}
+
 	return []byte(strconv.FormatInt(int64(n), 10)), nil
 }
 
@@ -131,6 +135,10 @@ func (s *Audience) UnmarshalJSON(b []byte) error {
 
 // MarshalJSON converts audience to json representation.
 func (s Audience) MarshalJSON() ([]byte, error) {
+	if s == nil {
+		return []byte("[]"), nil
+	}
+
 	if len(s) == 1 {
 		return json.Marshal(s[0])
 	}
