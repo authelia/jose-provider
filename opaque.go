@@ -81,6 +81,12 @@ func checkOpaquePublicKey(pk *JSONWebKey, alg SignatureAlgorithm) error {
 
 	switch key := pk.Key.(type) {
 	case *rsa.PublicKey:
+		switch alg {
+		case RS256, RS384, RS512, PS256, PS384, PS512:
+		default:
+			return ErrUnsupportedAlgorithm
+		}
+
 		return checkRSAPublicKey(key)
 	case *ecdsa.PublicKey:
 		curve, _, ok := ecdsaAlgCurve(alg)
@@ -93,6 +99,10 @@ func checkOpaquePublicKey(pk *JSONWebKey, alg SignatureAlgorithm) error {
 				alg, curveBitSize(curve), curveBitSize(key.Curve))
 		}
 	case ed25519.PublicKey:
+		if !isEdDSAAlg(alg) {
+			return ErrUnsupportedAlgorithm
+		}
+
 		return validateEd25519PublicKey(key)
 	}
 

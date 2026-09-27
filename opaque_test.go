@@ -201,6 +201,10 @@ func TestOpaqueSignerRefusesAPublicKeyTheVerifierRejects(t *testing.T) {
 		{"RSAEvenExponent", PS256, &rsa.PublicKey{N: rsaTestKey.N, E: 65536}, errInvalidRSAExponent},
 		{"ECDSACurveForAnotherAlgorithm", ES256, &ecTestKey384.PublicKey, nil},
 		{"Ed25519LowOrder", EdDSA, lowOrder, nil},
+		{"RSAKeyForECDSA", ES256, &rsaTestKey.PublicKey, ErrUnsupportedAlgorithm},
+		{"RSAKeyForEdDSA", EdDSA, &rsaTestKey.PublicKey, ErrUnsupportedAlgorithm},
+		{"Ed25519KeyForRSA", RS256, ed25519PublicKey, ErrUnsupportedAlgorithm},
+		{"Ed25519KeyForECDSA", ES256, ed25519PublicKey, ErrUnsupportedAlgorithm},
 	}
 
 	for _, tc := range testCases {
@@ -236,6 +240,12 @@ func TestOpaqueSignerRefusesARotatedPublicKeyTheVerifierRejects(t *testing.T) {
 
 	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrInvalidKeySize) {
 		t.Errorf("Sign: got %v, want %v", err, ErrInvalidKeySize)
+	}
+
+	sw.pk = &JSONWebKey{Key: ed25519PublicKey}
+
+	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrUnsupportedAlgorithm) {
+		t.Errorf("Sign: got %v, want %v", err, ErrUnsupportedAlgorithm)
 	}
 }
 
