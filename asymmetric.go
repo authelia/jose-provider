@@ -88,6 +88,10 @@ func checkRSAPublicKey(publicKey *rsa.PublicKey) error {
 		return ErrUnsupportedKeyType
 	}
 
+	if !validRSAExponent(publicKey.E) {
+		return errInvalidRSAExponent
+	}
+
 	if publicKey.N.BitLen() < minRSAKeyBits {
 		return ErrInvalidKeySize
 	}

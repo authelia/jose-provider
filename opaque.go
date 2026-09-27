@@ -16,12 +16,22 @@
 
 package jose
 
+import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"fmt"
+)
+
 // OpaqueSigner is an interface that supports signing payloads with opaque
 // private key(s). Private key operations performed by implementers may, for
 // example, occur in a hardware module. An OpaqueSigner may rotate signing keys
 // transparently to the user of this interface.
 type OpaqueSigner interface {
-	// Public returns the public key of the current signing key.
+	// Public returns the public key of the current signing key. A key which
+	// verification would refuse, such as an RSA key smaller than 2048 bits or
+	// an ECDSA key on a curve other than the one the algorithm requires, is
+	// refused when the signer is created and each time it signs.
 	Public() *JSONWebKey
 	// Algs returns a list of supported signing algorithms.
 	Algs() []SignatureAlgorithm
@@ -51,6 +61,10 @@ func newOpaqueSigner(alg SignatureAlgorithm, signer OpaqueSigner) (recipientSigI
 		return recipientSigInfo{}, ErrNotPublic
 	}
 
+	if err := checkOpaquePublicKey(pk, alg); err != nil {
+		return recipientSigInfo{}, err
+	}
+
 	return recipientSigInfo{
 		sigAlg:    alg,
 		publicKey: signer.Public,
@@ -60,7 +74,46 @@ func newOpaqueSigner(alg SignatureAlgorithm, signer OpaqueSigner) (recipientSigI
 	}, nil
 }
 
+func checkOpaquePublicKey(pk *JSONWebKey, alg SignatureAlgorithm) error {
+	if pk == nil {
+		return nil
+	}
+
+	switch key := pk.Key.(type) {
+	case *rsa.PublicKey:
+		switch alg {
+		case RS256, RS384, RS512, PS256, PS384, PS512:
+		default:
+			return ErrUnsupportedAlgorithm
+		}
+
+		return checkRSAPublicKey(key)
+	case *ecdsa.PublicKey:
+		curve, _, ok := ecdsaAlgCurve(alg)
+		if !ok || key == nil {
+			return ErrUnsupportedAlgorithm
+		}
+
+		if key.Curve != curve {
+			return fmt.Errorf("go-jose/go-jose: %s requires a %d bit key, got %d bits instead",
+				alg, curveBitSize(curve), curveBitSize(key.Curve))
+		}
+	case ed25519.PublicKey:
+		if !isEdDSAAlg(alg) {
+			return ErrUnsupportedAlgorithm
+		}
+
+		return validateEd25519PublicKey(key)
+	}
+
+	return nil
+}
+
 func (o *opaqueSigner) signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error) {
+	if err := checkOpaquePublicKey(o.signer.Public(), alg); err != nil {
+		return Signature{}, err
+	}
+
 	out, err := o.signer.SignPayload(payload, alg)
 	if err != nil {
 		return Signature{}, err
