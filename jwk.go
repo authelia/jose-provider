@@ -212,11 +212,28 @@ func (k JSONWebKey) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON reads a key from its JSON representation.
 //
 // Returns ErrUnsupportedKeyType for unrecognized or unsupported "kty" header values.
-func (k *JSONWebKey) UnmarshalJSON(data []byte) (err error) {
+//
+// Directly unmarshaling a JWK is not safe for untrusted input: a private key is validated when it is parsed, which
+// is expensive.
+func (k *JSONWebKey) UnmarshalJSON(data []byte) error {
+	return k.unmarshalJSON(data, true)
+}
+
+// unmarshalJSON reads a key from its JSON representation.
+//
+// If allowPrivate is false, a JWK with private key material is rejected before any of it is parsed, which makes the
+// function safe for use against untrusted input.
+func (k *JSONWebKey) unmarshalJSON(data []byte, allowPrivate bool) (err error) {
 	var raw rawJSONWebKey
 	err = json.Unmarshal(data, &raw)
 	if err != nil {
 		return err
+	}
+
+	if !allowPrivate &&
+		(raw.K != nil || raw.D != nil || raw.P != nil || raw.Q != nil ||
+			raw.Dp != nil || raw.Dq != nil || raw.Qi != nil || raw.Priv != nil) {
+		return errors.New("go-jose/go-jose: JWK contains private parameters")
 	}
 
 	if err = checkKeyOps(raw.Use, raw.KeyOps); err != nil {
@@ -735,6 +752,12 @@ func hasLeadingZero(b *byteBuffer) bool {
 	return len(data) > 0 && data[0] == 0
 }
 
+// MaxRSAModulusBits is the largest RSA modulus size, in bits, that will be accepted when parsing a JWK, and so the
+// largest that will be marshaled into one. Applications that need larger keys can raise this limit.
+//
+// If modifying MaxRSAModulusBits, do it before any parsing occurs.
+var MaxRSAModulusBits = 4096
+
 func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
 	if key.N == nil || key.E == nil {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, missing n/e values")
@@ -753,6 +776,10 @@ func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
 	n := key.N.bigInt()
 	if n.Sign() <= 0 || e <= 0 {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, n and e must be positive")
+	}
+
+	if n.BitLen() > MaxRSAModulusBits {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
 	}
 
 	if !validRSAExponent(e) {
@@ -790,6 +817,10 @@ func fromRsaPublicKey(pub *rsa.PublicKey) (*rawJSONWebKey, error) {
 
 	if !validRSAExponent(pub.E) {
 		return nil, errInvalidRSAExponent
+	}
+
+	if pub.N.BitLen() > MaxRSAModulusBits {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
 	}
 
 	return &rawJSONWebKey{
@@ -962,16 +993,24 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 		return nil, errInvalidRSAExponent
 	}
 
+	n := key.N.bigInt()
+	if n.BitLen() > MaxRSAModulusBits {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
+	}
+
+	// Validate below tests the primes for primality, so degenerate ones must be ruled out while it is still cheap.
+	p, q := key.P.bigInt(), key.Q.bigInt()
+	if p.BitLen()+q.BitLen() > n.BitLen()+1 || new(big.Int).Mul(p, q).Cmp(n) != 0 {
+		return nil, errors.New("go-jose/go-jose: invalid RSA private key, p * q != n")
+	}
+
 	rv := &rsa.PrivateKey{
 		PublicKey: rsa.PublicKey{
-			N: key.N.bigInt(),
+			N: n,
 			E: e,
 		},
-		D: key.D.bigInt(),
-		Primes: []*big.Int{
-			key.P.bigInt(),
-			key.Q.bigInt(),
-		},
+		D:      key.D.bigInt(),
+		Primes: []*big.Int{p, q},
 	}
 
 	if key.Dp != nil {
