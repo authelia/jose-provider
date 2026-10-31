@@ -296,7 +296,13 @@ func (obj JSONWebSignature) computeAuthData(payload []byte, signature *Signature
 		authData.WriteString(signature.original.Protected.base64())
 	} else if signature.protected != nil {
 		protectedHeader = signature.protected
-		authData.WriteString(base64.RawURLEncoding.EncodeToString(mustSerializeJSON(protectedHeader)))
+
+		serializedProtected, err := json.Marshal(protectedHeader)
+		if err != nil {
+			return nil, err
+		}
+
+		authData.WriteString(base64.RawURLEncoding.EncodeToString(serializedProtected))
 	}
 
 	needsBase64 := true
@@ -663,12 +669,12 @@ func parseSignedCompact(
 	return raw.sanitized(signatureAlgorithms)
 }
 
-func (sig Signature) serializedProtected() []byte {
+func (sig Signature) serializedProtected() ([]byte, error) {
 	if sig.original != nil && sig.original.Protected != nil {
-		return sig.original.Protected.bytes()
+		return sig.original.Protected.bytes(), nil
 	}
 
-	return mustSerializeJSON(sig.protected)
+	return json.Marshal(sig.protected)
 }
 
 func (obj JSONWebSignature) compactSerialize(detached bool) (string, error) {
@@ -676,7 +682,10 @@ func (obj JSONWebSignature) compactSerialize(detached bool) (string, error) {
 		return "", ErrNotSupported
 	}
 
-	serializedProtected := obj.Signatures[0].serializedProtected()
+	serializedProtected, err := obj.Signatures[0].serializedProtected()
+	if err != nil {
+		return "", err
+	}
 
 	b64, err := payloadIsBase64(obj.Signatures[0].protected)
 	if err != nil {
@@ -719,11 +728,14 @@ func (obj JSONWebSignature) DetachedCompactSerialize() (string, error) {
 }
 
 // FullSerialize serializes an object using the full JSON serialization format.
+//
+// It returns "" if obj cannot be serialized, for example if it has no signatures.
 func (obj JSONWebSignature) FullSerialize() string {
-	b64 := true
-	if len(obj.Signatures) > 0 {
-		b64, _ = payloadIsBase64(obj.Signatures[0].protected)
+	if len(obj.Signatures) == 0 {
+		return ""
 	}
+
+	b64, _ := payloadIsBase64(obj.Signatures[0].protected)
 
 	raw := rawJSONWebSignature{
 		Payload: wirePayload(obj.payload, b64),
@@ -731,7 +743,12 @@ func (obj JSONWebSignature) FullSerialize() string {
 
 	if len(obj.Signatures) == 1 {
 		if obj.Signatures[0].protected != nil {
-			raw.Protected = newBuffer(obj.Signatures[0].serializedProtected())
+			serializedProtected, err := obj.Signatures[0].serializedProtected()
+			if err != nil {
+				return ""
+			}
+
+			raw.Protected = newBuffer(serializedProtected)
 		}
 		raw.Header = obj.Signatures[0].header
 		raw.Signature = newBuffer(obj.Signatures[0].Signature)
@@ -744,10 +761,20 @@ func (obj JSONWebSignature) FullSerialize() string {
 			}
 
 			if signature.protected != nil {
-				raw.Signatures[i].Protected = newBuffer(signature.serializedProtected())
+				serializedProtected, err := signature.serializedProtected()
+				if err != nil {
+					return ""
+				}
+
+				raw.Signatures[i].Protected = newBuffer(serializedProtected)
 			}
 		}
 	}
 
-	return string(mustSerializeJSON(raw))
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return ""
+	}
+
+	return string(out)
 }

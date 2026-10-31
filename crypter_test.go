@@ -2125,7 +2125,11 @@ func TestECDHESPartyInfoIsBoundToTheDerivedKey(t *testing.T) {
 	}
 
 	contentCipher := getContentCipher(A128GCM)
-	authData := parsed.computeAuthData()
+	authData, err := parsed.computeAuthData()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	parts := &aeadParts{iv: parsed.iv, ciphertext: parsed.ciphertext, tag: parsed.tag}
 
 	unbound := josecipher.DeriveECDHES(string(A128GCM), nil, nil, recipientKey, ephemeral, contentCipher.keySize())
