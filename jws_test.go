@@ -1683,3 +1683,73 @@ func TestFullSerializeNoSignatures(t *testing.T) {
 		t.Errorf("expected empty string, got %q", out)
 	}
 }
+
+func TestParseSignedMaxSignatures(t *testing.T) {
+	defer func(old int) { MaxSignatures = old }(MaxSignatures)
+
+	// makeJWS makes a JWS with n signatures.
+	makeJWS := func(n int) string {
+		sigs := strings.TrimSuffix(strings.Repeat(`{"protected":"eyJhbGciOiJSUzI1NiJ9","signature":"AA"},`, n), ",")
+		return `{"payload":"AA","signatures":[` + sigs + `]}`
+	}
+
+	testCases := []struct {
+		name       string
+		signatures int
+		limit      int // override for MaxSignatures, 0 for default
+		wantErr    bool
+	}{
+		{name: "at limit", signatures: 32},
+		{name: "over limit", signatures: 33, wantErr: true},
+		{name: "far over limit", signatures: 10000, wantErr: true},
+		{name: "raised limit", signatures: 33, limit: 33},
+		{name: "lowered limit", signatures: 2, limit: 1, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			MaxSignatures = 32
+			if tc.limit != 0 {
+				MaxSignatures = tc.limit
+			}
+			obj, err := ParseSigned(makeJWS(tc.signatures), []SignatureAlgorithm{RS256})
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "too many signatures") {
+					t.Fatalf("expected too many signatures error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(obj.Signatures) != tc.signatures {
+				t.Errorf("got %d signatures, want %d", len(obj.Signatures), tc.signatures)
+			}
+		})
+	}
+}
+
+func TestParseSignedMaxSignaturesCountsSingleSignature(t *testing.T) {
+	defer func(old int) { MaxSignatures = old }(MaxSignatures)
+
+	protected := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
+	flattened := `{"payload":"AA","protected":"` + protected + `","signature":"AA"}`
+	compact := protected + ".AA.AA"
+
+	for name, parse := range map[string]func() (*JSONWebSignature, error){
+		"flattened": func() (*JSONWebSignature, error) { return ParseSignedJSON(flattened, []SignatureAlgorithm{RS256}) },
+		"compact":   func() (*JSONWebSignature, error) { return ParseSignedCompact(compact, []SignatureAlgorithm{RS256}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			MaxSignatures = 0
+			if _, err := parse(); err == nil || !strings.Contains(err.Error(), "too many signatures") {
+				t.Errorf("expected too many signatures error, got %v", err)
+			}
+
+			MaxSignatures = 1
+			if _, err := parse(); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

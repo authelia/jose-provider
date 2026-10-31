@@ -1420,3 +1420,77 @@ func TestFullSerializeNoRecipients(t *testing.T) {
 		t.Errorf("expected empty string, got %q", out)
 	}
 }
+
+func TestParseEncryptedMaxRecipients(t *testing.T) {
+	defer func(old int) { MaxRecipients = old }(MaxRecipients)
+
+	// makeJWE creates a JWE with n recipients.
+	makeJWE := func(n int) string {
+		recipients := strings.TrimSuffix(strings.Repeat("{},", n), ",")
+		return `{"unprotected":{"alg":"RSA-OAEP","enc":"A128GCM"},"recipients":[` + recipients +
+			`],"iv":"AAAAAAAAAAAAAAAA","ciphertext":"AA","tag":"AAAAAAAAAAAAAAAAAAAAAA"}`
+	}
+
+	testCases := []struct {
+		name       string
+		recipients int
+		limit      int // override for MaxRecipients, 0 for default
+		wantErr    bool
+	}{
+		{name: "at limit", recipients: 32},
+		{name: "over limit", recipients: 33, wantErr: true},
+		{name: "far over limit", recipients: 10000, wantErr: true},
+		{name: "raised limit", recipients: 33, limit: 33},
+		{name: "lowered limit", recipients: 2, limit: 1, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			MaxRecipients = 32
+			if tc.limit != 0 {
+				MaxRecipients = tc.limit
+			}
+			obj, err := ParseEncrypted(makeJWE(tc.recipients), []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "too many recipients") {
+					t.Fatalf("expected too many recipients error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(obj.recipients) != tc.recipients {
+				t.Errorf("got %d recipients, want %d", len(obj.recipients), tc.recipients)
+			}
+		})
+	}
+}
+
+func TestParseEncryptedMaxRecipientsCountsSingleRecipient(t *testing.T) {
+	defer func(old int) { MaxRecipients = old }(MaxRecipients)
+
+	flattened := `{"unprotected":{"alg":"dir","enc":"A128GCM"},"iv":"AAAAAAAAAAAAAAAA","ciphertext":"AA","tag":"AAAAAAAAAAAAAAAAAAAAAA"}`
+	compact := newBuffer([]byte(`{"alg":"dir","enc":"A128GCM"}`)).base64() + "..AAAAAAAAAAAAAAAA.AA.AAAAAAAAAAAAAAAAAAAAAA"
+
+	for name, parse := range map[string]func() (*JSONWebEncryption, error){
+		"flattened": func() (*JSONWebEncryption, error) {
+			return ParseEncryptedJSON(flattened, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM})
+		},
+		"compact": func() (*JSONWebEncryption, error) {
+			return ParseEncryptedCompact(compact, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128GCM})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			MaxRecipients = 0
+			if _, err := parse(); err == nil || !strings.Contains(err.Error(), "too many recipients") {
+				t.Errorf("expected too many recipients error, got %v", err)
+			}
+
+			MaxRecipients = 1
+			if _, err := parse(); err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
