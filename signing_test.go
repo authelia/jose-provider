@@ -197,6 +197,43 @@ func TestSignerWithBrokenRand(t *testing.T) {
 	}
 }
 
+func TestJWSNilVerificationKey(t *testing.T) {
+	tests := []struct {
+		name            string
+		algorithm       SignatureAlgorithm
+		verificationKey any
+		want            error
+	}{
+		{name: "Ed25519", algorithm: EdDSA, verificationKey: ed25519.PublicKey(nil), want: errInvalidVerificationKey},
+		{name: "ECDSA", algorithm: ES256, verificationKey: (*ecdsa.PublicKey)(nil), want: errInvalidVerificationKey},
+		{name: "RSA", algorithm: RS256, verificationKey: (*rsa.PublicKey)(nil), want: errInvalidVerificationKey},
+		{name: "JWK", algorithm: RS256, verificationKey: (*JSONWebKey)(nil), want: errInvalidVerificationKey},
+		{name: "JWKS", algorithm: RS256, verificationKey: (*JSONWebKeySet)(nil), want: ErrUnsupportedKeyType},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			signingKey, _ := GenerateSigningTestKey(test.algorithm)
+			signer, err := NewSigner(SigningKey{Algorithm: test.algorithm, Key: signingKey}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			obj, err := signer.Sign([]byte("payload"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := obj.Verify(test.verificationKey); !errors.Is(err, test.want) {
+				t.Fatalf("Verify() error = %v, want %v", err, test.want)
+			}
+
+			if _, _, _, err := obj.VerifyMulti(test.verificationKey); err == nil {
+				t.Fatal("VerifyMulti() accepted a nil verification key")
+			}
+		})
+	}
+}
+
 func TestJWSInvalidKey(t *testing.T) {
 	signingKey0, verificationKey0 := GenerateSigningTestKey(RS256)
 	_, verificationKey1 := GenerateSigningTestKey(ES256)

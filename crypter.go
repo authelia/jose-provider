@@ -456,6 +456,10 @@ func newDecrypter(decryptionKey any) (keyDecrypter, error) {
 	case JSONWebKey:
 		return newDecrypter(decryptionKey.Key)
 	case *JSONWebKey:
+		if decryptionKey == nil {
+			return nil, ErrUnsupportedKeyType
+		}
+
 		return newDecrypter(decryptionKey.Key)
 	case OpaqueKeyDecrypter:
 		return &opaqueKeyDecrypter{decrypter: decryptionKey}, nil

@@ -2827,3 +2827,32 @@ func mustCompactSerialize(t *testing.T, obj *JSONWebEncryption) string {
 
 	return serialized
 }
+
+func TestJWENilDecryptionKey(t *testing.T) {
+	key := make([]byte, 16)
+
+	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: key}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	obj, err := encrypter.Encrypt([]byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, decryptionKey := range map[string]any{
+		"JWK":  (*JSONWebKey)(nil),
+		"JWKS": (*JSONWebKeySet)(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := obj.Decrypt(decryptionKey); !errors.Is(err, ErrUnsupportedKeyType) {
+				t.Errorf("Decrypt() error = %v, want %v", err, ErrUnsupportedKeyType)
+			}
+
+			if _, _, _, err := obj.DecryptMulti(decryptionKey); err == nil {
+				t.Error("DecryptMulti() accepted a nil decryption key")
+			}
+		})
+	}
+}
