@@ -754,7 +754,8 @@ func hasLeadingZero(b *byteBuffer) bool {
 }
 
 // MaxRSAModulusBits is the largest RSA modulus size, in bits, that will be accepted when parsing a JWK, and so the
-// largest that will be marshaled into one. Applications that need larger keys can raise this limit.
+// largest that will be marshaled into one, or when verifying an x5c certificate chain with [Header.Certificates].
+// Applications that need larger keys can raise this limit.
 //
 // If modifying MaxRSAModulusBits, do it before any parsing occurs.
 var MaxRSAModulusBits = 4096
