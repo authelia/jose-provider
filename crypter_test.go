@@ -2898,3 +2898,34 @@ func TestJWENilDecryptionKey(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMultiEncrypterRespectsMaxRecipients(t *testing.T) {
+	defer func(old int) { MaxRecipients = old }(MaxRecipients)
+
+	MaxRecipients = 1
+
+	rcpts := []Recipient{
+		{Algorithm: A128KW, Key: make([]byte, 16)},
+		{Algorithm: A128KW, Key: make([]byte, 16)},
+	}
+
+	if _, err := NewMultiEncrypter(A128GCM, rcpts, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
+		t.Errorf("expected too many recipients error, got %v", err)
+	}
+
+	MaxRecipients = 2
+
+	if _, err := NewMultiEncrypter(A128GCM, rcpts, nil); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewEncrypterRespectsMaxRecipients(t *testing.T) {
+	defer func(old int) { MaxRecipients = old }(MaxRecipients)
+
+	MaxRecipients = 0
+
+	if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: make([]byte, 16)}, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
+		t.Errorf("expected too many recipients error, got %v", err)
+	}
+}

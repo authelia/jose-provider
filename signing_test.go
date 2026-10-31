@@ -1432,3 +1432,22 @@ func TestSignUnmarshalableExtraHeader(t *testing.T) {
 		t.Error("expected error signing with unmarshalable extra header")
 	}
 }
+
+func TestNewMultiSignerRespectsMaxSignatures(t *testing.T) {
+	defer func(old int) { MaxSignatures = old }(MaxSignatures)
+
+	MaxSignatures = 1
+
+	key := make([]byte, 32)
+	sigs := []SigningKey{{Algorithm: HS256, Key: key}, {Algorithm: HS256, Key: key}}
+
+	if _, err := NewMultiSigner(sigs, nil); err == nil || !strings.Contains(err.Error(), "too many signatures") {
+		t.Errorf("expected too many signatures error, got %v", err)
+	}
+
+	MaxSignatures = 2
+
+	if _, err := NewMultiSigner(sigs, nil); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

@@ -199,6 +199,10 @@ type Recipient struct {
 
 // NewEncrypter creates an appropriate encrypter based on the key type
 func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions) (Encrypter, error) {
+	if MaxRecipients < 1 {
+		return nil, fmt.Errorf("go-jose/go-jose: too many recipients in JWE; maximum is %d", MaxRecipients)
+	}
+
 	encrypter := &genericEncrypter{
 		contentAlg: enc,
 		recipients: []recipientKeyInfo{},
@@ -304,6 +308,9 @@ func NewMultiEncrypter(enc ContentEncryption, rcpts []Recipient, opts *Encrypter
 	}
 	if len(rcpts) == 0 {
 		return nil, fmt.Errorf("go-jose/go-jose: recipients is nil or empty")
+	}
+	if len(rcpts) > MaxRecipients {
+		return nil, fmt.Errorf("go-jose/go-jose: too many recipients in JWE; maximum is %d", MaxRecipients)
 	}
 
 	encrypter := &genericEncrypter{

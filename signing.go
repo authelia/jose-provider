@@ -320,6 +320,10 @@ func NewSigner(sig SigningKey, opts *SignerOptions) (Signer, error) {
 
 // NewMultiSigner creates a signer for multiple recipients
 func NewMultiSigner(sigs []SigningKey, opts *SignerOptions) (Signer, error) {
+	if len(sigs) > MaxSignatures {
+		return nil, fmt.Errorf("go-jose/go-jose: too many signatures in JWS; maximum is %d", MaxSignatures)
+	}
+
 	signer := &genericSigner{recipients: []recipientSigInfo{}}
 
 	if opts != nil {

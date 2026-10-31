@@ -26,6 +26,12 @@ import (
 	"authelia.com/provider/jose/json"
 )
 
+// MaxSignatures is the maximum number of signatures in a JWS at parse time.
+// Higher values mean more potential work done across untrusted input.
+//
+// If modifying MaxSignatures, do it before any parsing occurs.
+var MaxSignatures = 32
+
 // rawPayload is the payload member of a JWS.
 //
 // RFC 7797 lets a JWS carry its payload either base64url encoded or literally, selected by the "b64" header
@@ -336,7 +342,8 @@ func (obj JSONWebSignature) computeAuthData(payload []byte, signature *Signature
 	return authData.Bytes(), nil
 }
 
-// ParseSignedJSON parses a message in JWS JSON Serialization.
+// ParseSignedJSON parses a message in JWS JSON Serialization. Messages with
+// more than [MaxSignatures] signatures are rejected.
 //
 // https://datatracker.ietf.org/doc/html/rfc7515#section-7.2
 //
@@ -403,6 +410,11 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	}
 	if parsed.Payload == nil {
 		return nil, fmt.Errorf("go-jose/go-jose: missing payload in JWS message")
+	}
+
+	// The flattened and compact serializations have no "signatures" member but still carry one signature.
+	if max(len(parsed.Signatures), 1) > MaxSignatures {
+		return nil, fmt.Errorf("go-jose/go-jose: too many signatures in JWS; maximum is %d", MaxSignatures)
 	}
 
 	obj := &JSONWebSignature{
