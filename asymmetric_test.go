@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 	"testing"
 
 	"authelia.com/provider/jose/json"
@@ -989,10 +990,18 @@ func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
 	})
 }
 
-// A curve interface holding a typed nil *elliptic.CurveParams is not nil, but its Params() is, so the bit size is
-// reported as zero rather than dereferencing it.
-func TestCurveBitSize(t *testing.T) {
-	assert.Equal(t, 0, curveBitSize(nil))
-	assert.Equal(t, 0, curveBitSize((*elliptic.CurveParams)(nil)))
-	assert.Equal(t, 256, curveBitSize(elliptic.P256()))
+// The curve is named rather than sized in the error, since a different curve of the same size is rejected as well.
+func TestECDSACurveMismatchNamesTheCurve(t *testing.T) {
+	lookalike := &ecdsa.PublicKey{Curve: elliptic.P256().Params(), X: ecTestKey256.X, Y: ecTestKey256.Y}
+	signature := make([]byte, 64)
+
+	err := (ecEncrypterVerifier{publicKey: lookalike}).verifyPayload([]byte("payload"), signature, ES256)
+	if err == nil || !strings.Contains(err.Error(), "ES256 requires the P-256 curve") {
+		t.Errorf("verifyPayload() error = %v, want it to name the P-256 curve", err)
+	}
+
+	_, err = (ecDecrypterSigner{privateKey: ecTestKey256}).signPayload([]byte("payload"), ES384)
+	if err == nil || !strings.Contains(err.Error(), "ES384 requires the P-384 curve") {
+		t.Errorf("signPayload() error = %v, want it to name the P-384 curve", err)
+	}
 }

@@ -95,8 +95,7 @@ func checkOpaquePublicKey(pk *JSONWebKey, alg SignatureAlgorithm) error {
 		}
 
 		if key.Curve != curve {
-			return fmt.Errorf("go-jose/go-jose: %s requires a %d bit key, got %d bits instead",
-				alg, curveBitSize(curve), curveBitSize(key.Curve))
+			return fmt.Errorf("go-jose/go-jose: %s requires the %s curve", alg, curve.Params().Name)
 		}
 	case ed25519.PublicKey:
 		if !isEdDSAAlg(alg) {
