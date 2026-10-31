@@ -603,22 +603,9 @@ func parseCertificateChain(chain []string) ([]*x509.Certificate, error) {
 }
 
 func (parsed rawHeader) isSet(k HeaderKey) bool {
-	dvr := parsed[k]
-	if dvr == nil {
-		return false
-	}
+	_, ok := parsed[k]
 
-	var dv any
-	err := json.Unmarshal(*dvr, &dv)
-	if err != nil {
-		return true
-	}
-
-	if dvStr, ok := dv.(string); ok {
-		return dvStr != ""
-	}
-
-	return true
+	return ok
 }
 
 // checkDisjoint returns an error when the same parameter name appears in more than one of the header objects which
