@@ -728,6 +728,12 @@ func (obj JSONWebEncryption) Decrypt(decryptionKey any) ([]byte, error) {
 //
 // Automatically decompresses plaintext, but returns an error if the decompressed
 // data would be >250kB or >10x the size of the compressed data, whichever is larger.
+//
+// Calling DecryptMulti() with PBES2 enabled can do far more CPU work than Decrypt(). The PBES2 key unwrapping
+// algorithms are intentionally expensive and run for each recipient, up to the limit reported as ErrPBES2WorkLimit.
+// If your application does not require PBES2, leave those algorithms out of calls to ParseEncrypted,
+// ParseEncryptedJSON and ParseEncryptedCompact. If it does, use Decrypt() rather than DecryptMulti(), as Decrypt()
+// only processes single-recipient messages.
 func (obj JSONWebEncryption) DecryptMulti(decryptionKey any) (int, Header, []byte, error) {
 	err := obj.checkNoCritical()
 	if err != nil {
