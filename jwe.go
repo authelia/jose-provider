@@ -323,15 +323,6 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		}
 	}
 
-	// Note: this must be called _after_ we parse the protected header,
-	// otherwise fields from the protected header will not get picked up.
-	var err error
-	publicHeaders := obj.publicHeaders(nil)
-	obj.Header, err = publicHeaders.sanitized()
-	if err != nil {
-		return nil, fmt.Errorf("go-jose/go-jose: cannot sanitize headers: %v (%v)", err, publicHeaders)
-	}
-
 	if len(parsed.Recipients) == 0 {
 		obj.recipients = []recipientInfo{
 			{
@@ -399,6 +390,14 @@ func (parsed *rawJSONWebEncryption) sanitized(
 		if err != nil {
 			return nil, fmt.Errorf("go-jose/go-jose: unprotected header: %s", err)
 		}
+	}
+
+	// Note: this must be called _after_ we parse the protected header,
+	// otherwise fields from the protected header will not get picked up.
+	var err error
+	obj.Header, err = obj.publicHeaders(nil).sanitized()
+	if err != nil {
+		return nil, fmt.Errorf("go-jose/go-jose: cannot sanitize headers: %w", err)
 	}
 
 	obj.iv = parsed.Iv.bytes()
