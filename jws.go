@@ -225,6 +225,11 @@ type Signature struct {
 // Verify() after parsing to validate the signature and obtain the payload.
 //
 // https://datatracker.ietf.org/doc/html/rfc7515#section-7
+//
+// The signatureAlgorithms parameter contains the allowable algorithms in the "alg" header parameter.
+// It must be non-empty. Non-matching algorithms cause a parse error.
+//
+// Deprecated: call ParseSignedJSON or ParseSignedCompact depending on which serialization you expect.
 func ParseSigned(
 	signature string,
 	signatureAlgorithms []SignatureAlgorithm,
@@ -247,6 +252,9 @@ func ParseSigned(
 // Verify() after parsing to validate the signature and obtain the payload.
 //
 // https://datatracker.ietf.org/doc/html/rfc7515#section-7.1
+//
+// The signatureAlgorithms parameter contains the allowable algorithms in the "alg" header parameter.
+// It must be non-empty. Non-matching algorithms cause a parse error.
 func ParseSignedCompact(
 	signature string,
 	signatureAlgorithms []SignatureAlgorithm,
@@ -264,6 +272,9 @@ func ParseSignedCompact(
 // parsing. Call Verify() after parsing to validate the signature and obtain the payload.
 //
 // https://datatracker.ietf.org/doc/html/rfc7515#appendix-F
+//
+// The signatureAlgorithms parameter contains the allowable algorithms in the "alg" header parameter.
+// It must be non-empty. Non-matching algorithms cause a parse error.
 func ParseDetached(
 	signature string,
 	payload []byte,
@@ -328,6 +339,9 @@ func (obj JSONWebSignature) computeAuthData(payload []byte, signature *Signature
 // ParseSignedJSON parses a message in JWS JSON Serialization.
 //
 // https://datatracker.ietf.org/doc/html/rfc7515#section-7.2
+//
+// The signatureAlgorithms parameter contains the allowable algorithms in the "alg" header parameter.
+// It must be non-empty. Non-matching algorithms cause a parse error.
 func ParseSignedJSON(
 	input string,
 	signatureAlgorithms []SignatureAlgorithm,
