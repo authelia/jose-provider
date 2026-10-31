@@ -489,11 +489,11 @@ func (ctx *symmetricKeyCipher) decryptKey(headers rawHeader, recipient *recipien
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: %v", err)
 		}
 
-		if p2s == nil || len(p2s.data) == 0 {
+		if p2s == nil || len(p2s.bytes()) == 0 {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: must be present")
 		}
 
-		if len(p2s.data) < minP2SSize {
+		if len(p2s.bytes()) < minP2SSize {
 			return nil, fmt.Errorf("go-jose/go-jose: invalid P2S: must be at least %d octets", minP2SSize)
 		}
 
