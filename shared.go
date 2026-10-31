@@ -401,6 +401,27 @@ func (parsed rawHeader) getCritical() ([]string, error) {
 
 var errProtectedHeaderNotObject = errors.New("go-jose/go-jose: protected header is not a JSON object")
 
+// parseProtectedHeader parses the decoded "protected" member of a JWS or JWE. An absent member gives a nil header.
+//
+// A member which is present must hold a JSON object. That excludes an empty value: RFC 7515 Section 7.2.1 and RFC 7516
+// Section 7.2.1 require the member to be absent when the protected header is empty.
+func parseProtectedHeader(in *byteBuffer) (*rawHeader, error) {
+	if in == nil {
+		return nil, nil
+	}
+
+	if !isJSONObject(in.bytes()) {
+		return nil, errProtectedHeaderNotObject
+	}
+
+	header := &rawHeader{}
+	if err := json.Unmarshal(in.bytes(), header); err != nil {
+		return nil, fmt.Errorf("go-jose/go-jose: invalid protected header: %w", err)
+	}
+
+	return header, nil
+}
+
 func isJSONObject(data []byte) bool {
 	for _, c := range data {
 		switch c {
