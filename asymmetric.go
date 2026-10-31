@@ -644,19 +644,6 @@ func ecdsaAlgCurve(alg SignatureAlgorithm) (elliptic.Curve, crypto.Hash, bool) {
 	}
 }
 
-func curveBitSize(curve elliptic.Curve) int {
-	if curve == nil {
-		return 0
-	}
-
-	params := curve.Params()
-	if params == nil {
-		return 0
-	}
-
-	return params.BitSize
-}
-
 func (ctx ecDecrypterSigner) signPayload(payload []byte, alg SignatureAlgorithm) (Signature, error) {
 	curve, hash, ok := ecdsaAlgCurve(alg)
 	if !ok {
@@ -664,8 +651,7 @@ func (ctx ecDecrypterSigner) signPayload(payload []byte, alg SignatureAlgorithm)
 	}
 
 	if ctx.privateKey.Curve != curve {
-		return Signature{}, fmt.Errorf("go-jose/go-jose: expected %d bit key, got %d bits instead",
-			curve.Params().BitSize, curveBitSize(ctx.privateKey.Curve))
+		return Signature{}, fmt.Errorf("go-jose/go-jose: %s requires the %s curve", alg, curve.Params().Name)
 	}
 
 	hasher := hash.New()
@@ -716,8 +702,7 @@ func (ctx ecEncrypterVerifier) verifyPayload(payload []byte, signature []byte, a
 	// implies. Check the curve itself so a key can only be used under the
 	// algorithm RFC 7518 Section 3.4 pairs it with.
 	if ctx.publicKey.Curve != curve {
-		return fmt.Errorf("go-jose/go-jose: %s requires a %d bit key, got %d bits instead",
-			alg, curve.Params().BitSize, curveBitSize(ctx.publicKey.Curve))
+		return fmt.Errorf("go-jose/go-jose: %s requires the %s curve", alg, curve.Params().Name)
 	}
 
 	keySize := curveSize(curve)
