@@ -424,17 +424,13 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	if len(parsed.Signatures) == 0 {
 		// No signatures array, must be flattened serialization
 		signature := Signature{}
-		if parsed.Protected != nil {
-			if !isJSONObject(parsed.Protected.bytes()) {
-				return nil, errProtectedHeaderNotObject
-			}
 
-			signature.protected = &rawHeader{}
-			err := json.Unmarshal(parsed.Protected.bytes(), signature.protected)
-			if err != nil {
-				return nil, err
-			}
+		protected, err := parseProtectedHeader(parsed.Protected)
+		if err != nil {
+			return nil, err
 		}
+
+		signature.protected = protected
 
 		// Check that there is not a nonce in the unprotected header
 		if parsed.Header != nil && parsed.Header.getNonce() != "" {
@@ -473,7 +469,6 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 			return nil, newErrUnexpectedSignatureAlgorithm(alg, signatureAlgorithms)
 		}
 
-		var err error
 		signature.Header, err = mergedHeaders.sanitized()
 		if err != nil {
 			return nil, err
@@ -520,17 +515,12 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 	}
 
 	for i, sig := range parsed.Signatures {
-		if sig.Protected != nil {
-			if !isJSONObject(sig.Protected.bytes()) {
-				return nil, errProtectedHeaderNotObject
-			}
-
-			obj.Signatures[i].protected = &rawHeader{}
-			err := json.Unmarshal(sig.Protected.bytes(), obj.Signatures[i].protected)
-			if err != nil {
-				return nil, err
-			}
+		protected, err := parseProtectedHeader(sig.Protected)
+		if err != nil {
+			return nil, err
 		}
+
+		obj.Signatures[i].protected = protected
 
 		// Check that there is not a nonce in the unprotected header
 		if sig.Header != nil && sig.Header.getNonce() != "" {
@@ -555,7 +545,6 @@ func (parsed *rawJSONWebSignature) sanitized(signatureAlgorithms []SignatureAlgo
 			return nil, newErrUnexpectedSignatureAlgorithm(alg, signatureAlgorithms)
 		}
 
-		var err error
 		obj.Signatures[i].Header, err = mergedHeaders.sanitized()
 		if err != nil {
 			return nil, err
