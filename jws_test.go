@@ -251,7 +251,10 @@ func TestParseSignedJSONDoesNotRewriteMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set alg: %v", err)
 	}
-	protectedJSON := mustSerializeJSON(protected)
+	protectedJSON, err := json.Marshal(protected)
+	if err != nil {
+		t.Fatalf("marshal protected: %v", err)
+	}
 	protectedB64 := newBuffer(protectedJSON).base64()
 	payloadB64 := newBuffer(payload).base64()
 	signingInput := []byte(protectedB64 + "." + payloadB64)
@@ -1672,5 +1675,11 @@ func TestUnexpectedAlgorithmCheckedBeforeHeaders(t *testing.T) {
 				t.Fatalf("expected ErrUnexpectedSignatureAlgorithm, got %v", err)
 			}
 		})
+	}
+}
+
+func TestFullSerializeNoSignatures(t *testing.T) {
+	if out := (JSONWebSignature{}).FullSerialize(); out != "" {
+		t.Errorf("expected empty string, got %q", out)
 	}
 }

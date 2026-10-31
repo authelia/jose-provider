@@ -509,7 +509,11 @@ func jweJSONWithoutProtectedHeader(t *testing.T, key []byte, plaintext []byte) s
 		Ciphertext:  newBuffer(parts.ciphertext),
 		Tag:         newBuffer(parts.tag),
 	}
-	return string(mustSerializeJSON(raw))
+	out, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal JWE: %v", err)
+	}
+	return string(out)
 }
 
 func TestVectorsJWECorrupt(t *testing.T) {
@@ -1376,7 +1380,12 @@ func jweWithEncPerRecipient(t *testing.T, key, plaintext []byte, encs ...Content
 		obj.recipients = append(obj.recipients, recipientInfo{header: header, encryptedKey: jek})
 	}
 
-	parts, err := getContentCipher(encs[0]).encrypt(cek, obj.computeAuthData(), plaintext)
+	authData, err := obj.computeAuthData()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parts, err := getContentCipher(encs[0]).encrypt(cek, authData, plaintext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1403,5 +1412,11 @@ func TestUnexpectedAlgorithmCheckedBeforeHeadersJWE(t *testing.T) {
 				t.Fatalf("expected unexpected key algorithm error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestFullSerializeNoRecipients(t *testing.T) {
+	if out := (JSONWebEncryption{}).FullSerialize(); out != "" {
+		t.Errorf("expected empty string, got %q", out)
 	}
 }
