@@ -114,6 +114,8 @@ func inflate(input []byte) ([]byte, error) {
 }
 
 // byteBuffer represents a slice of bytes that can be serialized to url-safe base64.
+//
+// A nil byteBuffer represents an empty slice of bytes.
 type byteBuffer struct {
 	data []byte
 }
@@ -161,20 +163,13 @@ func (b *byteBuffer) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*b = *newBuffer(decoded)
+	b.data = decoded
 
 	return nil
 }
 
 func (b *byteBuffer) base64() string {
-	// Handling nil here mirrors bytes below. newBuffer returns nil for a nil
-	// slice, and newBufferFromInt(0) reaches it because bytes.TrimLeft reports a
-	// fully trimmed slice as nil.
-	if b == nil {
-		return ""
-	}
-
-	return base64.RawURLEncoding.EncodeToString(b.data)
+	return base64.RawURLEncoding.EncodeToString(b.bytes())
 }
 
 func (b *byteBuffer) bytes() []byte {
@@ -185,14 +180,14 @@ func (b *byteBuffer) bytes() []byte {
 	return b.data
 }
 
-func (b byteBuffer) bigInt() *big.Int {
-	return new(big.Int).SetBytes(b.data)
+func (b *byteBuffer) bigInt() *big.Int {
+	return new(big.Int).SetBytes(b.bytes())
 }
 
 // toInt returns the buffer as an int, and reports a value which does not fit rather than truncating it. The only
 // caller is the RSA public exponent, where silently keeping the low bits made two JWKs differing above that
 // boundary parse to one key; and, since rsaThumbprintInput re-encodes from the result, share a thumbprint.
-func (b byteBuffer) toInt() (int, error) {
+func (b *byteBuffer) toInt() (int, error) {
 	value := b.bigInt()
 
 	if !value.IsInt64() {

@@ -143,3 +143,28 @@ func TestFixedSizeBufferTooLarge(t *testing.T) {
 
 	newFixedSizeBuffer(make([]byte, 2), 1)
 }
+
+func TestNilByteBuffer(t *testing.T) {
+	var buf *byteBuffer
+
+	if got := buf.bytes(); got != nil {
+		t.Errorf("bytes() = %v, want nil", got)
+	}
+	if got := buf.base64(); got != "" {
+		t.Errorf("base64() = %q, want empty string", got)
+	}
+	if got := buf.bigInt(); got.Sign() != 0 {
+		t.Errorf("bigInt() = %s, want 0", got)
+	}
+	if got, err := buf.toInt(); got != 0 || err != nil {
+		t.Errorf("toInt() = %d, %v, want 0, nil", got, err)
+	}
+
+	got, err := buf.MarshalJSON()
+	if err != nil {
+		t.Errorf("MarshalJSON() returned error: %s", err)
+	}
+	if string(got) != `""` {
+		t.Errorf("MarshalJSON() = %s, want %s", got, `""`)
+	}
+}

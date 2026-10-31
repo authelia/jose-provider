@@ -851,11 +851,11 @@ func (key rawJSONWebKey) ecPublicKey() (*ecdsa.PublicKey, error) {
 	// The length of this octet string MUST be the full size of a coordinate for
 	// the curve specified in the "crv" parameter.
 	// https://tools.ietf.org/html/rfc7518#section-6.2.1.2
-	if curveSize(curve) != len(key.X.data) {
+	if curveSize(curve) != len(key.X.bytes()) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC public key, wrong length for x")
 	}
 
-	if curveSize(curve) != len(key.Y.data) {
+	if curveSize(curve) != len(key.Y.bytes()) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC public key, wrong length for y")
 	}
 
@@ -1164,16 +1164,16 @@ func (key rawJSONWebKey) ecPrivateKey() (*ecdsa.PrivateKey, error) {
 	// The length of this octet string MUST be the full size of a coordinate for
 	// the curve specified in the "crv" parameter.
 	// https://tools.ietf.org/html/rfc7518#section-6.2.1.2
-	if curveSize(curve) != len(key.X.data) {
+	if curveSize(curve) != len(key.X.bytes()) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key, wrong length for x")
 	}
 
-	if curveSize(curve) != len(key.Y.data) {
+	if curveSize(curve) != len(key.Y.bytes()) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key, wrong length for y")
 	}
 
 	// https://tools.ietf.org/html/rfc7518#section-6.2.2.1
-	if dSize(curve) != len(key.D.data) {
+	if dSize(curve) != len(key.D.bytes()) {
 		return nil, fmt.Errorf("go-jose/go-jose: invalid EC private key, wrong length for d")
 	}
 
@@ -1196,7 +1196,7 @@ func (key rawJSONWebKey) ecPrivateKey() (*ecdsa.PrivateKey, error) {
 
 	// ECDH validates the point and the scalar separately, never that d is the private key for x and y.
 	point := make([]byte, 0, 1+2*curveSize(curve))
-	point = append(append(append(point, 0x04), key.X.data...), key.Y.data...)
+	point = append(append(append(point, 0x04), key.X.bytes()...), key.Y.bytes()...)
 
 	if !bytes.Equal(ecdhKey.PublicKey().Bytes(), point) {
 		return nil, errors.New("go-jose/go-jose: invalid EC private key, x and y do not match d")
