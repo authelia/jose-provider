@@ -1328,6 +1328,10 @@ func tryJWKS(key any, header Header, use string, ops []string) ([]any, error) {
 
 	switch jwksType := key.(type) {
 	case *JSONWebKeySet:
+		if jwksType == nil {
+			return nil, ErrUnsupportedKeyType
+		}
+
 		jwks = *jwksType
 	case JSONWebKeySet:
 		jwks = jwksType

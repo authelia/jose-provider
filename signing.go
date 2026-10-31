@@ -282,6 +282,8 @@ type payloadVerifier interface {
 	verifyPayload(payload []byte, signature []byte, alg SignatureAlgorithm) error
 }
 
+var errInvalidVerificationKey = errors.New("go-jose/go-jose: invalid verification key")
+
 type genericSigner struct {
 	recipients   []recipientSigInfo
 	nonceSource  NonceSource
@@ -344,14 +346,26 @@ func NewMultiSigner(sigs []SigningKey, opts *SignerOptions) (Signer, error) {
 func newVerifier(verificationKey any) (payloadVerifier, error) {
 	switch verificationKey := verificationKey.(type) {
 	case ed25519.PublicKey:
+		if len(verificationKey) == 0 {
+			return nil, errInvalidVerificationKey
+		}
+
 		return &edEncrypterVerifier{
 			publicKey: verificationKey,
 		}, nil
 	case *rsa.PublicKey:
+		if verificationKey == nil {
+			return nil, errInvalidVerificationKey
+		}
+
 		return &rsaEncrypterVerifier{
 			publicKey: verificationKey,
 		}, nil
 	case *ecdsa.PublicKey:
+		if verificationKey == nil {
+			return nil, errInvalidVerificationKey
+		}
+
 		return &ecEncrypterVerifier{
 			publicKey: verificationKey,
 		}, nil
@@ -362,6 +376,10 @@ func newVerifier(verificationKey any) (payloadVerifier, error) {
 	case JSONWebKey:
 		return newVerifier(verificationKey.Key)
 	case *JSONWebKey:
+		if verificationKey == nil {
+			return nil, errInvalidVerificationKey
+		}
+
 		return newVerifier(verificationKey.Key)
 	case OpaqueVerifier:
 		return &opaqueVerifier{verifier: verificationKey}, nil
