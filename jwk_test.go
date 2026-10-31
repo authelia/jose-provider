@@ -2904,3 +2904,29 @@ func TestKeyMismatchX509UnsupportedCertKey(t *testing.T) {
 		}
 	}
 }
+
+func TestRSAPrivateKeyAppliesPublicKeyChecks(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*rawJSONWebKey)
+		wantErr string
+	}{
+		{"empty n", func(jwk *rawJSONWebKey) { jwk.N = &byteBuffer{} }, "n and e must be positive"},
+		{"empty e", func(jwk *rawJSONWebKey) { jwk.E = &byteBuffer{} }, "n and e must be positive"},
+		{"n with a leading zero", func(jwk *rawJSONWebKey) { jwk.N = newBuffer(append([]byte{0}, jwk.N.bytes()...)) }, "minimum number of octets"},
+		{"even e", func(jwk *rawJSONWebKey) { jwk.E = newBuffer([]byte{4}) }, "e must be odd"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwk, err := fromRsaPrivateKey(rsaTestKey)
+			require.NoError(t, err)
+
+			tc.mutate(jwk)
+
+			if _, err = jwk.rsaPrivateKey(); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}

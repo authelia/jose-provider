@@ -982,37 +982,21 @@ func (key rawJSONWebKey) rsaPrivateKey() (*rsa.PrivateKey, error) {
 		return nil, errors.New("go-jose/go-jose: invalid RSA private key, dp, dq and qi must all be present or all be absent")
 	}
 
-	if hasLeadingZero(key.N) || hasLeadingZero(key.E) {
-		return nil, errors.New("go-jose/go-jose: invalid RSA private key, n and e must use the minimum number of octets")
-	}
-
-	e, err := key.E.toInt()
+	pub, err := key.rsaPublicKey()
 	if err != nil {
-		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA private key, e is out of range: %w", err)
-	}
-
-	if !validRSAExponent(e) {
-		return nil, errInvalidRSAExponent
-	}
-
-	n := key.N.bigInt()
-	if n.BitLen() > MaxRSAModulusBits {
-		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
+		return nil, err
 	}
 
 	// Validate below tests the primes for primality, so degenerate ones must be ruled out while it is still cheap.
 	p, q := key.P.bigInt(), key.Q.bigInt()
-	if p.BitLen()+q.BitLen() > n.BitLen()+1 || new(big.Int).Mul(p, q).Cmp(n) != 0 {
+	if p.BitLen()+q.BitLen() > pub.N.BitLen()+1 || new(big.Int).Mul(p, q).Cmp(pub.N) != 0 {
 		return nil, errors.New("go-jose/go-jose: invalid RSA private key, p * q != n")
 	}
 
 	rv := &rsa.PrivateKey{
-		PublicKey: rsa.PublicKey{
-			N: n,
-			E: e,
-		},
-		D:      key.D.bigInt(),
-		Primes: []*big.Int{p, q},
+		PublicKey: *pub,
+		D:         key.D.bigInt(),
+		Primes:    []*big.Int{p, q},
 	}
 
 	if key.Dp != nil {
