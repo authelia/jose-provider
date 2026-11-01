@@ -32,6 +32,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose"
 )
 
@@ -48,24 +51,18 @@ func TestRoundtripsJWSCryptoSigner(t *testing.T) {
 
 		for i, serializer := range serializers {
 			err := roundtripJWS(alg, serializer, Opaque(signingKey.(crypto.Signer)), verificationKey)
-			if err != nil {
-				t.Error(err, alg, i)
-			}
+			assert.NoError(t, err, "%v %v", alg, i)
 		}
 	}
 }
 
 func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	der := func(r, s *big.Int) []byte {
 		b, err := asn1.Marshal(struct{ R, S *big.Int }{r, s})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		return b
 	}
@@ -74,9 +71,7 @@ func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
 	order := elliptic.P256().Params().N
 
 	extraInteger, err := asn1.Marshal(struct{ R, S, T *big.Int }{one, one, one})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := map[string][]byte{
 		"RIsOrder":      der(order, one),
@@ -94,18 +89,15 @@ func TestSignPayloadRejectsMalformedECDSASignature(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			signer := Opaque(derSigner{key: key, sig: sig})
 
-			if _, err := signer.SignPayload([]byte("payload"), jose.ES256); err == nil {
-				t.Error("SignPayload accepted a malformed signature")
-			}
+			_, err := signer.SignPayload([]byte("payload"), jose.ES256)
+			assert.Error(t, err, "SignPayload accepted a malformed signature")
 		})
 	}
 }
 
 func TestOpaqueRefusesAnRSAKeyTheVerifierRejects(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if _, err = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: Opaque(key)}, nil); !errors.Is(err, jose.ErrInvalidKeySize) {
 		t.Errorf("NewSigner: got %v, want %v", err, jose.ErrInvalidKeySize)
@@ -216,34 +208,22 @@ func TestSignPayloadRejectsTypedNilECDSAKey(t *testing.T) {
 
 func Test_cryptoSigner_Algs(t *testing.T) {
 	_, edKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	p224, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	p256, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	p521, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	type fields struct {
 		signer crypto.Signer
@@ -281,9 +261,7 @@ func Test_cryptoSigner_Algs(t *testing.T) {
 // to the RFC rejected the signature.
 func TestSignPayloadUsesPSSSaltLengthEqualToHash(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		alg  jose.SignatureAlgorithm
@@ -299,37 +277,28 @@ func TestSignPayloadUsesPSSSaltLengthEqualToHash(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(string(tc.alg), func(t *testing.T) {
 			signature, err := Opaque(key).SignPayload(payload, tc.alg)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			hasher := tc.hash.New()
 			hasher.Write(payload)
 
 			opts := &rsa.PSSOptions{SaltLength: tc.hash.Size(), Hash: tc.hash}
 
-			if err = rsa.VerifyPSS(&key.PublicKey, tc.hash, hasher.Sum(nil), signature, opts); err != nil {
-				t.Fatalf("signature does not use a salt the size of the hash: %v", err)
-			}
+			err = rsa.VerifyPSS(&key.PublicKey, tc.hash, hasher.Sum(nil), signature, opts)
+			require.NoError(t, err, "signature does not use a salt the size of the hash")
 		})
 	}
 }
 
 func TestSignPayloadRejectsAlgorithmTheKeyDoesNotSupport(t *testing.T) {
 	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	p256, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name string

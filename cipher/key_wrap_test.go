@@ -21,6 +21,8 @@ import (
 	"crypto/aes"
 	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestKeyUnwrapShort(t *testing.T) {
@@ -89,33 +91,21 @@ func TestAesKeyWrap(t *testing.T) {
 	out1, _ := KeyWrap(block1, cek1)
 	out2, _ := KeyWrap(block2, cek2)
 
-	if !bytes.Equal(out0, expected0) {
-		t.Error("output 0 not as expected, got", out0, "wanted", expected0)
-	}
+	assert.Equal(t, expected0, out0, "%v %v %v %v", "output 0 not as expected, got", out0, "wanted", expected0)
 
-	if !bytes.Equal(out1, expected1) {
-		t.Error("output 1 not as expected, got", out1, "wanted", expected1)
-	}
+	assert.Equal(t, expected1, out1, "%v %v %v %v", "output 1 not as expected, got", out1, "wanted", expected1)
 
-	if !bytes.Equal(out2, expected2) {
-		t.Error("output 2 not as expected, got", out2, "wanted", expected2)
-	}
+	assert.Equal(t, expected2, out2, "%v %v %v %v", "output 2 not as expected, got", out2, "wanted", expected2)
 
 	unwrap0, _ := KeyUnwrap(block0, out0)
 	unwrap1, _ := KeyUnwrap(block1, out1)
 	unwrap2, _ := KeyUnwrap(block2, out2)
 
-	if !bytes.Equal(unwrap0, cek0) {
-		t.Error("key unwrap did not return original input, got", unwrap0, "wanted", cek0)
-	}
+	assert.Equal(t, cek0, unwrap0, "%v %v %v %v", "key unwrap did not return original input, got", unwrap0, "wanted", cek0)
 
-	if !bytes.Equal(unwrap1, cek1) {
-		t.Error("key unwrap did not return original input, got", unwrap1, "wanted", cek1)
-	}
+	assert.Equal(t, cek1, unwrap1, "%v %v %v %v", "key unwrap did not return original input, got", unwrap1, "wanted", cek1)
 
-	if !bytes.Equal(unwrap2, cek2) {
-		t.Error("key unwrap did not return original input, got", unwrap2, "wanted", cek2)
-	}
+	assert.Equal(t, cek2, unwrap2, "%v %v %v %v", "key unwrap did not return original input, got", unwrap2, "wanted", cek2)
 }
 
 func TestAesKeyWrapInvalid(t *testing.T) {
@@ -127,25 +117,19 @@ func TestAesKeyWrapInvalid(t *testing.T) {
 	block, _ := aes.NewCipher(kek)
 
 	_, err := KeyUnwrap(block, input0)
-	if err == nil {
-		t.Error("key unwrap failed to detect invalid input")
-	}
+	assert.Error(t, err, "key unwrap failed to detect invalid input")
 
 	// Invalid unwrap input (truncated)
 	input1, _ := hex.DecodeString("1EA68C1A8112B447AEF34BD8FB5A7B828D3E862371D2CF")
 
 	_, err = KeyUnwrap(block, input1)
-	if err == nil {
-		t.Error("key unwrap failed to detect truncated input")
-	}
+	assert.Error(t, err, "key unwrap failed to detect truncated input")
 
 	// Invalid wrap input (not multiple of 8)
 	input2, _ := hex.DecodeString("0123456789ABCD")
 
 	_, err = KeyWrap(block, input2)
-	if err == nil {
-		t.Error("key wrap accepted invalid input")
-	}
+	assert.Error(t, err, "key wrap accepted invalid input")
 
 }
 
@@ -155,16 +139,14 @@ func TestKeyWrapRequiresTwoBlocks(t *testing.T) {
 	block, _ := aes.NewCipher(kek)
 
 	for _, n := range []int{0, 8} {
-		if out, err := KeyWrap(block, make([]byte, n)); err == nil {
-			t.Errorf("KeyWrap wrapped %d octets as %X", n, out)
-		}
+		out, err := KeyWrap(block, make([]byte, n))
+		assert.Error(t, err, "KeyWrap wrapped %d octets as %X", n, out)
 	}
 
 	wrapped, _ := hex.DecodeString("1604BDF081DF251151AE25F43725C074")
 
-	if out, err := KeyUnwrap(block, wrapped); err == nil {
-		t.Errorf("KeyUnwrap unwrapped a single block as %X", out)
-	}
+	out, err := KeyUnwrap(block, wrapped)
+	assert.Error(t, err, "KeyUnwrap unwrapped a single block as %X", out)
 }
 
 func BenchmarkAesKeyWrap(b *testing.B) {

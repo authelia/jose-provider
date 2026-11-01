@@ -31,10 +31,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose"
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/assert"
-	"authelia.com/provider/jose/testutils/require"
 )
 
 type testClaims struct {
@@ -70,19 +71,13 @@ func TestIntegerAndFloatsNormalize(t *testing.T) {
 	c := numberClaims{1 << 60, 12345.6789}
 
 	normalized, err := normalize(c)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ni, err := (normalized["int"].(json.Number)).Int64()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	nf, err := (normalized["float"].(json.Number)).Float64()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if ni != c.Int {
 		t.Errorf("normalize failed to preserve int64 (got %v, wanted %v, type %s)", normalized["int"], c.Int, reflect.TypeOf(normalized["int"]))
@@ -134,17 +129,17 @@ func TestBuilderMergeClaims(t *testing.T) {
 
 	out := make(map[string]any)
 	if assert.NoError(t, parsed.Claims(&testPrivRSAKey1.PublicKey, &out), "Error unmarshaling claims.") {
-		assert.EqualJSON(t, map[string]any{
+		assert.Equal(t, map[string]any{
 			"sub":    "42",
 			"Scopes": []any{"read:users"},
 		}, out)
 	}
 
 	_, err = Signed(rsaSigner).Claims("invalid-claims").Claims(&testClaims{"foo"}).Serialize()
-	assert.Equal(t, err, ErrInvalidClaims)
+	assert.Equal(t, ErrInvalidClaims, err)
 
 	_, err = Signed(rsaSigner).Claims(&invalidMarshalClaims{}).Serialize()
-	assert.Equal(t, err.Error(), "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims")
+	assert.Equal(t, "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims", err.Error())
 }
 
 func TestBuilderSignedAndEncrypted(t *testing.T) {
@@ -226,14 +221,14 @@ func TestBuilderSignedAndEncrypted(t *testing.T) {
 
 	b2 := SignedAndEncrypted(rsaSigner, encrypter).Claims(&invalidMarshalClaims{})
 	_, err = b2.Serialize()
-	assert.Equal(t, err.Error(), "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims")
+	assert.Equal(t, "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims", err.Error())
 	_, err = b2.Serialize()
-	assert.Equal(t, err.Error(), "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims")
+	assert.Equal(t, "json: error calling MarshalJSON for type *jwt.invalidMarshalClaims: failed marshaling invalid claims", err.Error())
 
 	encrypter2, err := jose.NewEncrypter(jose.A128CBC_HS256, recipient, nil)
 	require.NoError(t, err, "Error creating encrypter.")
 	_, err = SignedAndEncrypted(rsaSigner, encrypter2).Serialize()
-	assert.Equal(t, err.Error(), "go-jose/go-jose/jwt: expected content type to be JWT (cty header)")
+	assert.Equal(t, "go-jose/go-jose/jwt: expected content type to be JWT (cty header)", err.Error())
 }
 
 func TestBuilderHeadersSigner(t *testing.T) {
@@ -257,9 +252,8 @@ func TestBuilderHeadersSigner(t *testing.T) {
 
 		for j, key := range tc.Keys {
 			keyIDBytes := make([]byte, 20)
-			if _, err := io.ReadFull(rand.Reader, keyIDBytes); err != nil {
-				t.Fatalf("failed to read random bytes: %v", err)
-			}
+			_, err := io.ReadFull(rand.Reader, keyIDBytes)
+			require.NoError(t, err, "failed to read random bytes")
 			keyID := hex.EncodeToString(keyIDBytes)
 
 			wantKeyIDs[j] = keyID
@@ -296,9 +290,7 @@ func TestBuilderHeadersSigner(t *testing.T) {
 		}
 		sort.Strings(wantKeyIDs)
 		sort.Strings(gotKeyIDs)
-		if !reflect.DeepEqual(wantKeyIDs, gotKeyIDs) {
-			t.Errorf("case %d: wanted=%q got=%q", i, wantKeyIDs, gotKeyIDs)
-		}
+		assert.Equal(t, wantKeyIDs, gotKeyIDs, "case %d: wanted=%q got=%q", i, wantKeyIDs, gotKeyIDs)
 	}
 }
 
@@ -307,9 +299,8 @@ func TestBuilderHeadersEncrypter(t *testing.T) {
 	claims := &Claims{Issuer: "foo"}
 
 	keyIDBytes := make([]byte, 20)
-	if _, err := io.ReadFull(rand.Reader, keyIDBytes); err != nil {
-		t.Fatalf("failed to read random bytes: %v", err)
-	}
+	_, err := io.ReadFull(rand.Reader, keyIDBytes)
+	require.NoError(t, err, "failed to read random bytes")
 	keyID := hex.EncodeToString(keyIDBytes)
 
 	wantKeyID := keyID
@@ -583,7 +574,7 @@ func TestBuilderSignedAndEncryptedAcceptsContentTypeInAnyForm(t *testing.T) {
 
 			out := &testClaims{}
 			require.NoError(t, nested.Claims(&testPrivRSAKey1.PublicKey, out))
-			assert.Equal(t, *out, testClaims{"foo"})
+			assert.Equal(t, testClaims{"foo"}, *out)
 		})
 	}
 }

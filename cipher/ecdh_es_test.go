@@ -17,12 +17,13 @@
 package josecipher
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/base64"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Example keys from JWA, Appendix C
@@ -62,9 +63,7 @@ func TestVectorECDHES(t *testing.T) {
 
 	output := DeriveECDHES("A128GCM", apuData, apvData, bobKey, &aliceKey.PublicKey, 16)
 
-	if !bytes.Equal(output, expected) {
-		t.Error("output did not match what we expect, got", output, "wanted", expected)
-	}
+	assert.Equal(t, expected, output, "%v %v %v %v", "output did not match what we expect, got", output, "wanted", expected)
 }
 
 func TestInvalidECPublicKey(t *testing.T) {

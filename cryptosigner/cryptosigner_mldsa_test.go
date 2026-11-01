@@ -25,6 +25,9 @@ import (
 	"io"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose"
 )
 
@@ -39,9 +42,7 @@ func TestMLDSAOpaqueRoundtrip(t *testing.T) {
 	} {
 		t.Run(string(tc.alg), func(t *testing.T) {
 			key, err := mldsa.GenerateKey(tc.params)
-			if err != nil {
-				t.Fatalf("GenerateKey: %v", err)
-			}
+			require.NoError(t, err, "GenerateKey")
 
 			signer := Opaque(key)
 
@@ -51,41 +52,26 @@ func TestMLDSAOpaqueRoundtrip(t *testing.T) {
 			}
 
 			joseSigner, err := jose.NewSigner(jose.SigningKey{Algorithm: tc.alg, Key: signer}, nil)
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 			payload := []byte("Lorem ipsum dolor sit amet")
 			obj, err := joseSigner.Sign(payload)
-			if err != nil {
-				t.Fatalf("Sign: %v", err)
-			}
+			require.NoError(t, err, "Sign")
 			msg, err := obj.CompactSerialize()
-			if err != nil {
-				t.Fatalf("CompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "CompactSerialize")
 			parsed, err := jose.ParseSigned(msg, []jose.SignatureAlgorithm{tc.alg})
-			if err != nil {
-				t.Fatalf("ParseSigned: %v", err)
-			}
+			require.NoError(t, err, "ParseSigned")
 			out, err := parsed.Verify(key.PublicKey())
-			if err != nil {
-				t.Fatalf("Verify: %v", err)
-			}
-			if string(out) != string(payload) {
-				t.Errorf("payload = %q; want %q", out, payload)
-			}
+			require.NoError(t, err, "Verify")
+			assert.Equal(t, string(payload), string(out), "payload = %q; want %q", out, payload)
 		})
 	}
 }
 
 func TestMLDSAOpaqueRejectsMismatchedAlg(t *testing.T) {
 	key, err := mldsa.GenerateKey(mldsa.MLDSA44())
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	if _, err := Opaque(key).SignPayload([]byte("payload"), jose.ML_DSA_87); err == nil {
-		t.Error("SignPayload accepted ML-DSA-87 for an ML-DSA-44 key")
-	}
+	require.NoError(t, err, "GenerateKey")
+	_, err = Opaque(key).SignPayload([]byte("payload"), jose.ML_DSA_87)
+	assert.Error(t, err, "SignPayload accepted ML-DSA-87 for an ML-DSA-44 key")
 }
 
 func TestMLDSAOpaqueAlgsDoesNotPanic(t *testing.T) {

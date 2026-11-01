@@ -25,14 +25,16 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/big"
 	"testing"
-
-	"crypto/x509/pkix"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"authelia.com/provider/jose/json"
 )
@@ -40,9 +42,7 @@ import (
 func TestMLDSAAlgParamsRoundtrip(t *testing.T) {
 	for _, alg := range mldsaAlgs {
 		params, ok := mldsaParamsFor(alg)
-		if !ok {
-			t.Fatalf("mldsaParamsFor(%s) = _, false; want true", alg)
-		}
+		require.True(t, ok, "mldsaParamsFor(%s) = _, false; want true", alg)
 		got, ok := mldsaAlgFor(params)
 		if !ok || got != alg {
 			t.Errorf("mldsaAlgFor(%v) = %q, %v; want %q, true", params, got, ok, alg)
@@ -68,30 +68,16 @@ func TestMLDSAKeyPredicates(t *testing.T) {
 		privJWK := &JSONWebKey{Key: priv}
 		pubJWK := &JSONWebKey{Key: priv.PublicKey()}
 
-		if privJWK.IsPublic() {
-			t.Errorf("%s: private key JWK reported as public", alg)
-		}
-		if !pubJWK.IsPublic() {
-			t.Errorf("%s: public key JWK not reported as public", alg)
-		}
-		if !privJWK.Valid() {
-			t.Errorf("%s: private key JWK reported invalid", alg)
-		}
-		if !pubJWK.Valid() {
-			t.Errorf("%s: public key JWK reported invalid", alg)
-		}
+		assert.False(t, privJWK.IsPublic(), "%s: private key JWK reported as public", alg)
+		assert.True(t, pubJWK.IsPublic(), "%s: public key JWK not reported as public", alg)
+		assert.True(t, privJWK.Valid(), "%s: private key JWK reported invalid", alg)
+		assert.True(t, pubJWK.Valid(), "%s: public key JWK reported invalid", alg)
 
 		derived := privJWK.Public()
-		if !derived.IsPublic() {
-			t.Fatalf("%s: Public() did not return a public key", alg)
-		}
+		require.True(t, derived.IsPublic(), "%s: Public() did not return a public key", alg)
 		got, ok := derived.Key.(*mldsa.PublicKey)
-		if !ok {
-			t.Fatalf("%s: Public() returned %T; want *mldsa.PublicKey", alg, derived.Key)
-		}
-		if !got.Equal(priv.PublicKey()) {
-			t.Errorf("%s: Public() returned the wrong public key", alg)
-		}
+		require.True(t, ok, "%s: Public() returned %T; want *mldsa.PublicKey", alg, derived.Key)
+		assert.True(t, got.Equal(priv.PublicKey()), "%s: Public() returned the wrong public key", alg)
 
 		// Public() on an already-public key is the identity.
 		if again := pubJWK.Public(); !again.IsPublic() {
@@ -105,12 +91,8 @@ func TestMLDSANilKeysAreInvalid(t *testing.T) {
 		nilPriv *mldsa.PrivateKey
 		nilPub  *mldsa.PublicKey
 	)
-	if (&JSONWebKey{Key: nilPriv}).Valid() {
-		t.Error("nil *mldsa.PrivateKey reported valid")
-	}
-	if (&JSONWebKey{Key: nilPub}).Valid() {
-		t.Error("nil *mldsa.PublicKey reported valid")
-	}
+	assert.False(t, (&JSONWebKey{Key: nilPriv}).Valid(), "nil *mldsa.PrivateKey reported valid")
+	assert.False(t, (&JSONWebKey{Key: nilPub}).Valid(), "nil *mldsa.PublicKey reported valid")
 }
 
 func TestMLDSAUnusableKeysDoNotPanic(t *testing.T) {
@@ -130,34 +112,23 @@ func TestMLDSAUnusableKeysDoNotPanic(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				jwk := &JSONWebKey{Key: tc.key}
 
-				if jwk.Valid() {
-					t.Error("Valid() = true; want false")
-				}
-				if jwk.IsPublic() {
-					t.Error("IsPublic() = true; want false")
-				}
-				if _, err := NewSigner(SigningKey{Algorithm: ML_DSA_65, Key: tc.key}, nil); err == nil {
-					t.Error("NewSigner accepted the key")
-				}
-				if _, err := jwk.MarshalJSON(); err == nil {
-					t.Error("MarshalJSON accepted the key")
-				}
-				if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
-					t.Error("Thumbprint accepted the key")
-				}
+				assert.False(t, jwk.Valid(), "Valid() = true; want false")
+				assert.False(t, jwk.IsPublic(), "IsPublic() = true; want false")
+				_, err := NewSigner(SigningKey{Algorithm: ML_DSA_65, Key: tc.key}, nil)
+				assert.Error(t, err, "NewSigner accepted the key")
+				_, err = jwk.MarshalJSON()
+				assert.Error(t, err, "MarshalJSON accepted the key")
+				_, err = jwk.Thumbprint(crypto.SHA256)
+				assert.Error(t, err, "Thumbprint accepted the key")
 			})
 		}
 	})
 
 	realPriv := mldsaTestKey(t, ML_DSA_65)
 	signer, err := NewSigner(SigningKey{Algorithm: ML_DSA_65, Key: realPriv}, nil)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 	obj, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
 	t.Run("public", func(t *testing.T) {
 		for _, tc := range []struct {
@@ -170,21 +141,14 @@ func TestMLDSAUnusableKeysDoNotPanic(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				jwk := &JSONWebKey{Key: tc.key}
 
-				if jwk.Valid() {
-					t.Error("Valid() = true; want false")
-				}
-				if jwk.IsPublic() {
-					t.Error("IsPublic() = true; want false")
-				}
-				if _, err := obj.Verify(tc.key); err == nil {
-					t.Error("Verify accepted the key")
-				}
-				if _, err := jwk.MarshalJSON(); err == nil {
-					t.Error("MarshalJSON accepted the key")
-				}
-				if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
-					t.Error("Thumbprint accepted the key")
-				}
+				assert.False(t, jwk.Valid(), "Valid() = true; want false")
+				assert.False(t, jwk.IsPublic(), "IsPublic() = true; want false")
+				_, err := obj.Verify(tc.key)
+				assert.Error(t, err, "Verify accepted the key")
+				_, err = jwk.MarshalJSON()
+				assert.Error(t, err, "MarshalJSON accepted the key")
+				_, err = jwk.Thumbprint(crypto.SHA256)
+				assert.Error(t, err, "Thumbprint accepted the key")
 			})
 		}
 	})
@@ -201,9 +165,7 @@ func TestMLDSARoundtripJWS(t *testing.T) {
 		priv := mldsaTestKey(t, alg)
 		for i, serializer := range serializers {
 			t.Run(fmt.Sprintf("%s-serializer%d", alg, i), func(t *testing.T) {
-				if err := RoundtripJWS(alg, serializer, corrupter, priv, priv.PublicKey(), "test_nonce"); err != nil {
-					t.Error(err)
-				}
+				assert.NoError(t, RoundtripJWS(alg, serializer, corrupter, priv, priv.PublicKey(), "test_nonce"))
 			})
 		}
 	}
@@ -218,18 +180,15 @@ func TestMLDSARoundtripJWSCorruptSignature(t *testing.T) {
 		err := RoundtripJWS(alg, func(obj *JSONWebSignature) (string, error) {
 			return obj.CompactSerialize()
 		}, corrupter, priv, priv.PublicKey(), "")
-		if err == nil {
-			t.Errorf("%s: corrupt signature verified successfully", alg)
-		}
+		assert.Error(t, err, "%s: corrupt signature verified successfully", alg)
 	}
 }
 
 func TestMLDSASignerRejectsMismatchedAlg(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_44)
 	for _, alg := range []SignatureAlgorithm{ML_DSA_65, ML_DSA_87, EdDSA, ES256} {
-		if _, err := NewSigner(SigningKey{Algorithm: alg, Key: priv}, nil); err == nil {
-			t.Errorf("NewSigner accepted an ML-DSA-44 key for %s", alg)
-		}
+		_, err := NewSigner(SigningKey{Algorithm: alg, Key: priv}, nil)
+		assert.Error(t, err, "NewSigner accepted an ML-DSA-44 key for %s", alg)
 	}
 }
 
@@ -238,24 +197,15 @@ func TestMLDSAVerifierRejectsMismatchedAlg(t *testing.T) {
 	priv65 := mldsaTestKey(t, ML_DSA_65)
 
 	signer, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: priv44}, nil)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 	obj, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 	msg, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 	parsed, err := ParseSigned(msg, []SignatureAlgorithm{ML_DSA_44, ML_DSA_65})
-	if err != nil {
-		t.Fatalf("ParseSigned: %v", err)
-	}
-	if _, err := parsed.Verify(priv65.PublicKey()); err == nil {
-		t.Error("an ML-DSA-65 key verified an ML-DSA-44 signature")
-	}
+	require.NoError(t, err, "ParseSigned")
+	_, err = parsed.Verify(priv65.PublicKey())
+	assert.Error(t, err, "an ML-DSA-65 key verified an ML-DSA-44 signature")
 }
 
 func TestMLDSAVerifyPayloadRejectsMismatchedAlg(t *testing.T) {
@@ -263,18 +213,15 @@ func TestMLDSAVerifyPayloadRejectsMismatchedAlg(t *testing.T) {
 	payload := []byte("Lorem ipsum dolor sit amet")
 
 	sig, err := priv.Sign(randReader, payload, crypto.Hash(0))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
 	verifier, ok, err := mldsaVerifier(priv.PublicKey())
 	if !ok || err != nil {
 		t.Fatalf("mldsaVerifier(pub) = _, %v, %v; want _, true, nil", ok, err)
 	}
 
-	if err := verifier.verifyPayload(payload, sig, ML_DSA_65); err != nil {
-		t.Fatalf("verifyPayload(ML_DSA_65) failed on a matching key/signature pair: %v", err)
-	}
+	err = verifier.verifyPayload(payload, sig, ML_DSA_65)
+	require.NoError(t, err, "verifyPayload(ML_DSA_65) failed on a matching key/signature pair")
 
 	if err := verifier.verifyPayload(payload, sig, ML_DSA_44); !errors.Is(err, ErrUnsupportedAlgorithm) {
 		t.Errorf("verifyPayload(ML_DSA_44) = %v; want ErrUnsupportedAlgorithm", err)
@@ -287,9 +234,8 @@ func TestMLDSASignPayloadRejectsMismatchedAlg(t *testing.T) {
 
 	signer := &mldsaPrivateKeySigner{privateKey: priv, alg: ML_DSA_65}
 
-	if _, err := signer.signPayload(payload, ML_DSA_65); err != nil {
-		t.Fatalf("signPayload(ML_DSA_65) failed on a matching signer: %v", err)
-	}
+	_, err := signer.signPayload(payload, ML_DSA_65)
+	require.NoError(t, err, "signPayload(ML_DSA_65) failed on a matching signer")
 
 	if _, err := signer.signPayload(payload, ML_DSA_44); !errors.Is(err, ErrUnsupportedAlgorithm) {
 		t.Errorf("signPayload(ML_DSA_44) = _, %v; want ErrUnsupportedAlgorithm", err)
@@ -302,48 +248,31 @@ func TestMLDSASignWithJSONWebKey(t *testing.T) {
 		signingKey := JSONWebKey{Key: priv, KeyID: "test-kid", Algorithm: string(alg)}
 
 		signer, err := NewSigner(SigningKey{Algorithm: alg, Key: signingKey}, nil)
-		if err != nil {
-			t.Fatalf("%s: NewSigner with JSONWebKey: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: NewSigner with JSONWebKey", alg)
 		obj, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-		if err != nil {
-			t.Fatalf("%s: Sign: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: Sign", alg)
 		serialized, err := obj.CompactSerialize()
-		if err != nil {
-			t.Fatalf("%s: CompactSerialize: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: CompactSerialize", alg)
 		parsed, err := ParseSigned(serialized, []SignatureAlgorithm{alg})
-		if err != nil {
-			t.Fatalf("%s: ParseSigned: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: ParseSigned", alg)
 		if kid := parsed.Signatures[0].Header.KeyID; kid != "test-kid" {
 			t.Errorf("%s: KeyID = %q; want %q", alg, kid, "test-kid")
 		}
-		if _, err := parsed.Verify(&JSONWebKey{Key: priv.PublicKey()}); err != nil {
-			t.Errorf("%s: Verify with JSONWebKey: %v", alg, err)
-		}
+		_, err = parsed.Verify(&JSONWebKey{Key: priv.PublicKey()})
+		assert.NoError(t, err, "%s: Verify with JSONWebKey", alg)
 	}
 }
 
 func TestMLDSASignaturesAreRandomized(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_44)
 	signer, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: priv}, nil)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 	payload := []byte("Lorem ipsum dolor sit amet")
 	first, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 	second, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
-	if bytes.Equal(first.Signatures[0].Signature, second.Signatures[0].Signature) {
-		t.Error("two signatures over the same payload were identical; expected randomized signing")
-	}
+	require.NoError(t, err, "Sign")
+	assert.NotEqual(t, first.Signatures[0].Signature, second.Signatures[0].Signature, "two signatures over the same payload were identical; expected randomized signing")
 }
 
 func TestMLDSAMarshalPublicJWK(t *testing.T) {
@@ -351,14 +280,11 @@ func TestMLDSAMarshalPublicJWK(t *testing.T) {
 		priv := mldsaTestKey(t, alg)
 
 		data, err := (&JSONWebKey{Key: priv.PublicKey()}).MarshalJSON()
-		if err != nil {
-			t.Fatalf("%s: MarshalJSON: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: MarshalJSON", alg)
 
 		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatalf("%s: unmarshal into map: %v", alg, err)
-		}
+		err = json.Unmarshal(data, &raw)
+		require.NoError(t, err, "%s: unmarshal into map", alg)
 		if raw["kty"] != "AKP" {
 			t.Errorf("%s: kty = %v; want AKP", alg, raw["kty"])
 		}
@@ -371,9 +297,7 @@ func TestMLDSAMarshalPublicJWK(t *testing.T) {
 			t.Errorf("%s: public JWK contains priv", alg)
 		}
 		pub, err := base64.RawURLEncoding.DecodeString(raw["pub"].(string))
-		if err != nil {
-			t.Fatalf("%s: pub is not raw base64url: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: pub is not raw base64url", alg)
 		if len(pub) != mldsaExpectedPubSize[alg] {
 			t.Errorf("%s: len(pub) = %d; want %d", alg, len(pub), mldsaExpectedPubSize[alg])
 		}
@@ -392,59 +316,42 @@ func TestMLDSAMarshalPrivateJWK(t *testing.T) {
 		priv := mldsaTestKey(t, alg)
 
 		data, err := (&JSONWebKey{Key: priv}).MarshalJSON()
-		if err != nil {
-			t.Fatalf("%s: MarshalJSON: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: MarshalJSON", alg)
 
 		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatalf("%s: unmarshal into map: %v", alg, err)
-		}
+		err = json.Unmarshal(data, &raw)
+		require.NoError(t, err, "%s: unmarshal into map", alg)
 		if raw["kty"] != "AKP" || raw["alg"] != string(alg) {
 			t.Errorf("%s: kty/alg = %v/%v; want AKP/%s", alg, raw["kty"], raw["alg"], alg)
 		}
 
 		// RFC 9964: priv MUST be the seed and MUST be 32 bytes.
 		seed, err := base64.RawURLEncoding.DecodeString(raw["priv"].(string))
-		if err != nil {
-			t.Fatalf("%s: priv is not raw base64url: %v", alg, err)
-		}
-		if len(seed) != mldsa.PrivateKeySize {
-			t.Errorf("%s: len(priv) = %d; want %d", alg, len(seed), mldsa.PrivateKeySize)
-		}
-		if !bytes.Equal(seed, priv.Bytes()) {
-			t.Errorf("%s: priv is not the key's seed", alg)
-		}
+		require.NoError(t, err, "%s: priv is not raw base64url", alg)
+		assert.Len(t, seed, mldsa.PrivateKeySize, "%s: len(priv) = %d; want %d", alg, len(seed), mldsa.PrivateKeySize)
+		assert.Equal(t, priv.Bytes(), seed, "%s: priv is not the key's seed", alg)
 
 		// A private AKP JWK carries the public half too.
 		pub, err := base64.RawURLEncoding.DecodeString(raw["pub"].(string))
-		if err != nil {
-			t.Fatalf("%s: pub is not raw base64url: %v", alg, err)
-		}
-		if !bytes.Equal(pub, priv.PublicKey().Bytes()) {
-			t.Errorf("%s: pub does not match the key's public half", alg)
-		}
+		require.NoError(t, err, "%s: pub is not raw base64url", alg)
+		assert.Equal(t, priv.PublicKey().Bytes(), pub, "%s: pub does not match the key's public half", alg)
 	}
 }
 
 func TestMLDSAMarshalRejectsContradictoryAlgorithm(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_44)
 
-	if _, err := (&JSONWebKey{Key: priv, Algorithm: string(ML_DSA_44)}).MarshalJSON(); err != nil {
-		t.Errorf("MarshalJSON with matching Algorithm: %v", err)
-	}
+	_, err := (&JSONWebKey{Key: priv, Algorithm: string(ML_DSA_44)}).MarshalJSON()
+	assert.NoError(t, err, "MarshalJSON with matching Algorithm")
 
-	if _, err := (&JSONWebKey{Key: priv}).MarshalJSON(); err != nil {
-		t.Errorf("MarshalJSON with empty Algorithm: %v", err)
-	}
+	_, err = (&JSONWebKey{Key: priv}).MarshalJSON()
+	assert.NoError(t, err, "MarshalJSON with empty Algorithm")
 
-	if _, err := (&JSONWebKey{Key: priv, Algorithm: string(ML_DSA_87)}).MarshalJSON(); err == nil {
-		t.Error("MarshalJSON accepted an Algorithm contradicting the key's parameter set")
-	}
+	_, err = (&JSONWebKey{Key: priv, Algorithm: string(ML_DSA_87)}).MarshalJSON()
+	assert.Error(t, err, "MarshalJSON accepted an Algorithm contradicting the key's parameter set")
 
-	if _, err := (&JSONWebKey{Key: priv, Algorithm: "EdDSA"}).MarshalJSON(); err == nil {
-		t.Error("MarshalJSON accepted Algorithm=EdDSA on an ML-DSA key")
-	}
+	_, err = (&JSONWebKey{Key: priv, Algorithm: "EdDSA"}).MarshalJSON()
+	assert.Error(t, err, "MarshalJSON accepted Algorithm=EdDSA on an ML-DSA key")
 }
 
 func TestMLDSAEmbedJWKWithContradictoryAlgorithm(t *testing.T) {
@@ -458,13 +365,10 @@ func TestMLDSAEmbedJWKWithContradictoryAlgorithm(t *testing.T) {
 
 func TestMLDSAMarshalPreservesOtherKtyAlgHandling(t *testing.T) {
 	data, err := (&JSONWebKey{Key: ed25519PublicKey, Algorithm: "EdDSA"}).MarshalJSON()
-	if err != nil {
-		t.Fatalf("MarshalJSON: %v", err)
-	}
+	require.NoError(t, err, "MarshalJSON")
 	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	err = json.Unmarshal(data, &raw)
+	require.NoError(t, err, "unmarshal")
 	if raw["alg"] != "EdDSA" {
 		t.Errorf("alg = %v; want EdDSA", raw["alg"])
 	}
@@ -483,14 +387,11 @@ func TestMLDSAJWKRoundtrip(t *testing.T) {
 		} {
 			t.Run(fmt.Sprintf("%s-%s", alg, tc.name), func(t *testing.T) {
 				data, err := (&JSONWebKey{Key: tc.key, KeyID: "kid-1", Use: "sig"}).MarshalJSON()
-				if err != nil {
-					t.Fatalf("MarshalJSON: %v", err)
-				}
+				require.NoError(t, err, "MarshalJSON")
 
 				var parsed JSONWebKey
-				if err := parsed.UnmarshalJSON(data); err != nil {
-					t.Fatalf("UnmarshalJSON: %v", err)
-				}
+				err = parsed.UnmarshalJSON(data)
+				require.NoError(t, err, "UnmarshalJSON")
 				if parsed.KeyID != "kid-1" || parsed.Use != "sig" || parsed.Algorithm != string(alg) {
 					t.Errorf("metadata lost: kid=%q use=%q alg=%q", parsed.KeyID, parsed.Use, parsed.Algorithm)
 				}
@@ -498,20 +399,12 @@ func TestMLDSAJWKRoundtrip(t *testing.T) {
 				switch want := tc.key.(type) {
 				case *mldsa.PublicKey:
 					got, ok := parsed.Key.(*mldsa.PublicKey)
-					if !ok {
-						t.Fatalf("parsed key is %T; want *mldsa.PublicKey", parsed.Key)
-					}
-					if !got.Equal(want) {
-						t.Error("parsed public key differs from the original")
-					}
+					require.True(t, ok, "parsed key is %T; want *mldsa.PublicKey", parsed.Key)
+					assert.True(t, got.Equal(want), "parsed public key differs from the original")
 				case *mldsa.PrivateKey:
 					got, ok := parsed.Key.(*mldsa.PrivateKey)
-					if !ok {
-						t.Fatalf("parsed key is %T; want *mldsa.PrivateKey", parsed.Key)
-					}
-					if !got.Equal(want) {
-						t.Error("parsed private key differs from the original")
-					}
+					require.True(t, ok, "parsed key is %T; want *mldsa.PrivateKey", parsed.Key)
+					assert.True(t, got.Equal(want), "parsed private key differs from the original")
 				}
 			})
 		}
@@ -522,18 +415,13 @@ func TestMLDSAJWKRoundtrip(t *testing.T) {
 func TestMLDSAParsedJWKSigns(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_65)
 	data, err := (&JSONWebKey{Key: priv}).MarshalJSON()
-	if err != nil {
-		t.Fatalf("MarshalJSON: %v", err)
-	}
+	require.NoError(t, err, "MarshalJSON")
 	var parsed JSONWebKey
-	if err := parsed.UnmarshalJSON(data); err != nil {
-		t.Fatalf("UnmarshalJSON: %v", err)
-	}
-	if err := RoundtripJWS(ML_DSA_65, func(obj *JSONWebSignature) (string, error) {
+	err = parsed.UnmarshalJSON(data)
+	require.NoError(t, err, "UnmarshalJSON")
+	assert.NoError(t, RoundtripJWS(ML_DSA_65, func(obj *JSONWebSignature) (string, error) {
 		return obj.CompactSerialize()
-	}, func(*JSONWebSignature) {}, parsed.Key, priv.PublicKey(), ""); err != nil {
-		t.Error(err)
-	}
+	}, func(*JSONWebSignature) {}, parsed.Key, priv.PublicKey(), ""))
 }
 
 func TestMLDSAParseJWKRejects(t *testing.T) {
@@ -582,9 +470,8 @@ func TestMLDSAParseJWKRejects(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var key JSONWebKey
-			if err := key.UnmarshalJSON([]byte(tc.json)); err == nil {
-				t.Errorf("UnmarshalJSON accepted %s", tc.name)
-			}
+			err := key.UnmarshalJSON([]byte(tc.json))
+			assert.Error(t, err, "UnmarshalJSON accepted %s", tc.name)
 		})
 	}
 }
@@ -605,9 +492,7 @@ func TestMLDSAJWKWithCertificateChain(t *testing.T) {
 			SignatureAlgorithm:    x509.MLDSA44,
 		}
 		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.PublicKey(), key)
-		if err != nil {
-			t.Fatalf("CreateCertificate: %v", err)
-		}
+		require.NoError(t, err, "CreateCertificate")
 		return base64.StdEncoding.EncodeToString(der)
 	}
 
@@ -616,16 +501,14 @@ func TestMLDSAJWKWithCertificateChain(t *testing.T) {
 	// Matching chain: accepted.
 	matching := fmt.Sprintf(`{"kty":"AKP","alg":"ML-DSA-44","pub":%q,"x5c":[%q]}`, pub, newCert(priv))
 	var key JSONWebKey
-	if err := key.UnmarshalJSON([]byte(matching)); err != nil {
-		t.Errorf("UnmarshalJSON with a matching x5c: %v", err)
-	}
+	err := key.UnmarshalJSON([]byte(matching))
+	assert.NoError(t, err, "UnmarshalJSON with a matching x5c")
 
 	// Mismatched chain: rejected.
 	mismatched := fmt.Sprintf(`{"kty":"AKP","alg":"ML-DSA-44","pub":%q,"x5c":[%q]}`, pub, newCert(other))
 	var bad JSONWebKey
-	if err := bad.UnmarshalJSON([]byte(mismatched)); err == nil {
-		t.Error("UnmarshalJSON accepted a JWK whose x5c leaf does not match pub")
-	}
+	err = bad.UnmarshalJSON([]byte(mismatched))
+	assert.Error(t, err, "UnmarshalJSON accepted a JWK whose x5c leaf does not match pub")
 }
 
 func TestMLDSAThumbprint(t *testing.T) {
@@ -639,20 +522,14 @@ func TestMLDSAThumbprint(t *testing.T) {
 		)))
 
 		got, err := (&JSONWebKey{Key: priv.PublicKey()}).Thumbprint(crypto.SHA256)
-		if err != nil {
-			t.Fatalf("%s: Thumbprint: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: Thumbprint", alg)
 		if !bytes.Equal(got, want[:]) {
 			t.Errorf("%s: thumbprint = %x; want %x", alg, got, want[:])
 		}
 
 		fromPriv, err := (&JSONWebKey{Key: priv}).Thumbprint(crypto.SHA256)
-		if err != nil {
-			t.Fatalf("%s: Thumbprint of private key: %v", alg, err)
-		}
-		if !bytes.Equal(fromPriv, got) {
-			t.Errorf("%s: private and public thumbprints differ", alg)
-		}
+		require.NoError(t, err, "%s: Thumbprint of private key", alg)
+		assert.Equal(t, got, fromPriv, "%s: private and public thumbprints differ", alg)
 	}
 }
 
@@ -661,9 +538,7 @@ func TestMLDSAThumbprintDiffersByAlg(t *testing.T) {
 	for _, alg := range mldsaAlgs {
 		priv := mldsaTestKey(t, alg)
 		tp, err := (&JSONWebKey{Key: priv.PublicKey()}).Thumbprint(crypto.SHA256)
-		if err != nil {
-			t.Fatalf("%s: Thumbprint: %v", alg, err)
-		}
+		require.NoError(t, err, "%s: Thumbprint", alg)
 		if prev, ok := seen[string(tp)]; ok {
 			t.Errorf("%s collided with %s", alg, prev)
 		}
@@ -673,9 +548,7 @@ func TestMLDSAThumbprintDiffersByAlg(t *testing.T) {
 			`{"kty":"AKP","pub":"%s"}`,
 			base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes()),
 		)))
-		if bytes.Equal(tp, withoutAlg[:]) {
-			t.Errorf("%s: thumbprint is unaffected by omitting alg from the template", alg)
-		}
+		assert.NotEqual(t, tp, withoutAlg[:], "%s: thumbprint is unaffected by omitting alg from the template", alg)
 	}
 }
 
@@ -690,12 +563,8 @@ var mldsaAlgs = []SignatureAlgorithm{ML_DSA_44, ML_DSA_65, ML_DSA_87}
 func mldsaTestKey(t *testing.T, alg SignatureAlgorithm) *mldsa.PrivateKey {
 	t.Helper()
 	params, ok := mldsaParamsFor(alg)
-	if !ok {
-		t.Fatalf("mldsaParamsFor(%s): unknown algorithm", alg)
-	}
+	require.True(t, ok, "mldsaParamsFor(%s): unknown algorithm", alg)
 	key, err := mldsa.GenerateKey(params)
-	if err != nil {
-		t.Fatalf("mldsa.GenerateKey(%s): %v", alg, err)
-	}
+	require.NoError(t, err, "mldsa.GenerateKey(%s)", alg)
 	return key
 }

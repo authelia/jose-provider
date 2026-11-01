@@ -7,10 +7,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"math/big"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"authelia.com/provider/jose/json"
 )
@@ -26,9 +28,7 @@ func TestHeaderEqual(t *testing.T) {
 		Algorithm:    "test",
 		ExtraHeaders: map[HeaderKey]any{"kid": "1-2-3-4"},
 	}
-	if !reflect.DeepEqual(header1, header2) {
-		t.Fatalf("header1 and header2 are not equal, expected equal")
-	}
+	require.Equal(t, header2, header1, "header1 and header2 are not equal, expected equal")
 }
 
 func TestHeaderNotEqual(t *testing.T) {
@@ -42,9 +42,7 @@ func TestHeaderNotEqual(t *testing.T) {
 		Algorithm:    "test",
 		ExtraHeaders: map[HeaderKey]any{"kid": "9-9-9-9"},
 	}
-	if reflect.DeepEqual(header1, header2) {
-		t.Fatalf("header1 and header2 are equal, expected not equal")
-	}
+	require.NotEqual(t, header1, header2, "header1 and header2 are equal, expected not equal")
 }
 
 // getJWK extracts parsed "jwk" from the raw JSON.
@@ -72,13 +70,9 @@ func TestPrivateEPKRejected(t *testing.T) {
 func TestMergeHeaders(t *testing.T) {
 	var dst, src rawHeader
 	err := json.Unmarshal([]byte(`{"empty":"","null":null,"zero":0,"false":false,"set":"dst"}`), &dst)
-	if err != nil {
-		t.Fatalf("unmarshaling dst: %s", err)
-	}
+	require.NoError(t, err, "unmarshaling dst")
 	err = json.Unmarshal([]byte(`{"empty":"src","null":"src","zero":"src","false":"src","set":"src","new":"src"}`), &src)
-	if err != nil {
-		t.Fatalf("unmarshaling src: %s", err)
-	}
+	require.NoError(t, err, "unmarshaling src")
 
 	dst.merge(&src)
 
@@ -100,9 +94,7 @@ func TestMergeHeaders(t *testing.T) {
 		if v != nil {
 			got = string(*v)
 		}
-		if got != want {
-			t.Errorf("merge() set %q to %s, want %s", k, got, want)
-		}
+		assert.Equal(t, want, got, "merge() set %q to %s, want %s", k, got, want)
 	}
 }
 
@@ -124,13 +116,9 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			parent = template
 		}
 		der, err := x509.CreateCertificate(rand.Reader, template, parent, pub, rsaTestKey)
-		if err != nil {
-			t.Fatalf("CreateCertificate(%q) error = %v, want nil", subject, err)
-		}
+		require.NoError(t, err, "CreateCertificate(%q) error = %v, want nil", subject, err)
 		cert, err := x509.ParseCertificate(der)
-		if err != nil {
-			t.Fatalf("ParseCertificate(%q) error = %v, want nil", subject, err)
-		}
+		require.NoError(t, err, "ParseCertificate(%q) error = %v, want nil", subject, err)
 		return cert
 	}
 
@@ -206,17 +194,11 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: rsaTestKey}, &SignerOptions{
 				ExtraHeaders: map[HeaderKey]any{HeaderKey("x5c"): x5c},
 			})
-			if err != nil {
-				t.Fatalf("NewSigner() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "NewSigner() error = %v, want nil", err)
 			signed, err := signer.Sign([]byte("payload"))
-			if err != nil {
-				t.Fatalf("Sign() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "Sign() error = %v, want nil", err)
 			parsed, err := ParseSigned(signed.FullSerialize(), []SignatureAlgorithm{RS256})
-			if err != nil {
-				t.Fatalf("ParseSigned() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "ParseSigned() error = %v, want nil", err)
 
 			opts := x509.VerifyOptions{Roots: x509.NewCertPool()}
 			opts.Roots.AddCert(root)
@@ -266,9 +248,7 @@ func TestParseProtectedHeader(t *testing.T) {
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err, "unexpected error")
 			if tc.wantNil {
 				if header != nil {
 					t.Errorf("expected nil header, got %v", header)

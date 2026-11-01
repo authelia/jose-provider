@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"crypto"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Taken from: https://tools.ietf.org/id/draft-ietf-jose-json-web-algorithms-38.txt
@@ -103,9 +105,7 @@ func TestCache(t *testing.T) {
 	}
 
 	for i := range outputs {
-		if !bytes.Equal(outputs[i], outputs[(i+1)%len(outputs)]) {
-			t.Error("not all outputs from KDF matched")
-		}
+		assert.Equal(t, outputs[(i+1)%len(outputs)], outputs[i], "not all outputs from KDF matched")
 	}
 }
 

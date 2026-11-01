@@ -22,8 +22,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/assert"
 )
 
 func TestEncodeClaims(t *testing.T) {
@@ -72,7 +73,7 @@ func TestDecodeClaims(t *testing.T) {
 	if err := json.Unmarshal(s, &c); assert.NoError(t, err) {
 		assert.Equal(t, "issuer", c.Issuer)
 		assert.Equal(t, "subject", c.Subject)
-		assert.EqualSlice(t, Audience{"a1", "a2"}, c.Audience)
+		assert.Equal(t, Audience{"a1", "a2"}, c.Audience)
 		if !now.Equal(c.IssuedAt.Time()) {
 			t.Errorf("IssuedAt = %s, want %s", c.IssuedAt.Time(), now)
 		}
@@ -84,7 +85,7 @@ func TestDecodeClaims(t *testing.T) {
 	s2 := []byte(`{"aud": "a1"}`)
 	c2 := Claims{}
 	if err := json.Unmarshal(s2, &c2); assert.NoError(t, err) {
-		assert.EqualSlice(t, Audience{"a1"}, c2.Audience)
+		assert.Equal(t, Audience{"a1"}, c2.Audience)
 	}
 
 	invalid := []struct {
@@ -98,7 +99,7 @@ func TestDecodeClaims(t *testing.T) {
 
 	for _, v := range invalid {
 		c := Claims{}
-		assert.Equal(t, v.Err, json.Unmarshal([]byte(v.Raw), &c))
+		assert.Equal(t, json.Unmarshal([]byte(v.Raw), &c), v.Err)
 	}
 }
 
@@ -148,7 +149,7 @@ func TestNumericDateUnmarshalRejectsValuesOutOfRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var date NumericDate
 
-			assert.Equal(t, tc.err, date.UnmarshalJSON([]byte(tc.have)))
+			assert.Equal(t, date.UnmarshalJSON([]byte(tc.have)), tc.err)
 		})
 	}
 }
@@ -171,7 +172,7 @@ func TestNumericDateMarshalRejectsValuesUnmarshalRejects(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := tc.have.MarshalJSON()
-			assert.Equal(t, tc.err, err)
+			assert.Equal(t, err, tc.err)
 
 			if err != nil {
 				return
@@ -203,8 +204,8 @@ func TestNumericDateTimeDoesNotWrapAround(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.have.Time().After(now), tc.future)
-			assert.Equal(t, tc.have.Time().Before(now), !tc.future)
+			assert.Equal(t, tc.future, tc.have.Time().After(now))
+			assert.Equal(t, !tc.future, tc.have.Time().Before(now))
 		})
 	}
 }
@@ -216,7 +217,7 @@ func TestValidateRejectsNotBeforeOutOfRange(t *testing.T) {
 	notBefore := NumericDate(math.MaxInt64)
 	c := Claims{NotBefore: &notBefore}
 
-	assert.Equal(t, ErrNotValidYet, c.ValidateWithLeeway(Expected{Time: now}, 0))
+	assert.Equal(t, c.ValidateWithLeeway(Expected{Time: now}, 0), ErrNotValidYet)
 }
 
 func TestEncodeClaimsTimeValues(t *testing.T) {
@@ -269,7 +270,7 @@ func TestNumericDateUnmarshalRoundsToNearestSecond(t *testing.T) {
 			var n NumericDate
 
 			assert.NoError(t, json.Unmarshal([]byte(tc.in), &n))
-			assert.Equal(t, n, tc.expected)
+			assert.Equal(t, tc.expected, n)
 		})
 	}
 

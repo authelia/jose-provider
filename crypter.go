@@ -239,6 +239,10 @@ func NewEncrypter(enc ContentEncryption, rcpt Recipient, opts *EncrypterOptions)
 	case JSONWebKey:
 		keyID, rawKey = encryptionKey.KeyID, encryptionKey.Key
 	case *JSONWebKey:
+		if encryptionKey == nil {
+			return nil, ErrUnsupportedKeyType
+		}
+
 		keyID, rawKey = encryptionKey.KeyID, encryptionKey.Key
 	case OpaqueKeyEncrypter:
 		keyID, rawKey = encryptionKey.KeyID(), encryptionKey
@@ -432,6 +436,10 @@ func makeJWERecipient(alg KeyAlgorithm, encryptionKey any) (recipientKeyInfo, er
 		recipient.keyID = encryptionKey.KeyID
 		return recipient, err
 	case *JSONWebKey:
+		if encryptionKey == nil {
+			return recipientKeyInfo{}, ErrUnsupportedKeyType
+		}
+
 		recipient, err := makeJWERecipient(alg, encryptionKey.Key)
 		recipient.keyID = encryptionKey.KeyID
 		return recipient, err

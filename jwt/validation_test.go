@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"authelia.com/provider/jose/testutils/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFieldsMatch(t *testing.T) {
@@ -58,7 +58,7 @@ func TestFieldsMatch(t *testing.T) {
 	}
 
 	for _, v := range invalid {
-		assert.Equal(t, v.Error, c.Validate(v.Expected))
+		assert.Equal(t, c.Validate(v.Expected), v.Error)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestExpiryAndNotBefore(t *testing.T) {
 	assert.NoError(t, c.Validate(Expected{Time: now}))
 	err := c.Validate(Expected{Time: now.Add(2 * DefaultLeeway)})
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrExpired)
+		assert.Equal(t, ErrExpired, err)
 	}
 	// some error is okay (leeway)
 	assert.NoError(t, c.Validate(Expected{Time: now.Add(DefaultLeeway - time.Second)}))
@@ -85,14 +85,14 @@ func TestExpiryAndNotBefore(t *testing.T) {
 	assert.NoError(t, c.ValidateWithLeeway(Expected{Time: now.Add(-1 * time.Second)}, 0))
 	err = c.ValidateWithLeeway(Expected{Time: now}, 0)
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrExpired)
+		assert.Equal(t, ErrExpired, err)
 	}
 
 	// not before - default leeway (1 minute)
 	assert.NoError(t, c.Validate(Expected{Time: twelveHoursAgo}))
 	err = c.Validate(Expected{Time: twelveHoursAgo.Add(-2 * DefaultLeeway)})
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrNotValidYet)
+		assert.Equal(t, ErrNotValidYet, err)
 	}
 	// some error is okay (leeway)
 	assert.NoError(t, c.Validate(Expected{Time: twelveHoursAgo.Add(-DefaultLeeway)}))
@@ -116,11 +116,11 @@ func TestIssuedInFuture(t *testing.T) {
 	// cannot be issued in the future
 	err := c.Validate(Expected{Time: now.Add(-2 * DefaultLeeway)})
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrIssuedInTheFuture)
+		assert.Equal(t, ErrIssuedInTheFuture, err)
 	}
 	err = c.Validate(Expected{Time: now.Add(-DefaultLeeway - 1)})
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrIssuedInTheFuture)
+		assert.Equal(t, ErrIssuedInTheFuture, err)
 	}
 
 	// valid when we are within the default leeway
@@ -130,7 +130,7 @@ func TestIssuedInFuture(t *testing.T) {
 	assert.NoError(t, c.ValidateWithLeeway(Expected{Time: now}, 0))
 	err = c.ValidateWithLeeway(Expected{Time: now.Add(-1)}, 0)
 	if assert.Error(t, err) {
-		assert.Equal(t, err, ErrIssuedInTheFuture)
+		assert.Equal(t, ErrIssuedInTheFuture, err)
 	}
 }
 
@@ -168,12 +168,12 @@ func TestOptionalDateClaims(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			expect := Expected{}.WithTime(epoch.Add(-24 * time.Hour))
 			err := tc.claim.Validate(expect)
-			assert.Equal(t, tc.want, err)
+			assert.Equal(t, err, tc.want)
 
 			// test with zero expected time: should not change anything
 			expect = Expected{}
 			err = tc.claim.Validate(expect)
-			assert.Equal(t, tc.want, err)
+			assert.Equal(t, err, tc.want)
 		})
 	}
 }

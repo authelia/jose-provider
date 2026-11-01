@@ -31,83 +31,60 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/assert"
-	"authelia.com/provider/jose/testutils/require"
 )
 
 func TestEd25519(t *testing.T) {
 	_, err := newEd25519Signer("XYZ", nil)
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	enc := new(edEncrypterVerifier)
 	enc.publicKey = ed25519PublicKey
 	err = enc.verifyPayload([]byte{}, []byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	dec := new(edDecrypterSigner)
 	dec.privateKey = ed25519PrivateKey
 	_, err = dec.signPayload([]byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	sig, err := dec.signPayload([]byte("This is a test"), "EdDSA")
-	if err != nil {
-		t.Error("should not error trying to sign payload")
-	}
+	assert.NoError(t, err, "should not error trying to sign payload")
 	if sig.Signature == nil {
 		t.Error("Check the signature")
 	}
 	err = enc.verifyPayload([]byte("This is a test"), sig.Signature, "EdDSA")
-	if err != nil {
-		t.Error("should not error trying to verify payload")
-	}
+	assert.NoError(t, err, "should not error trying to verify payload")
 
 	err = enc.verifyPayload([]byte("This is test number 2"), sig.Signature, "EdDSA")
-	if err == nil {
-		t.Error("should not error trying to verify payload")
-	}
+	assert.Error(t, err, "should not error trying to verify payload")
 }
 
 func TestInvalidAlgorithmsRSA(t *testing.T) {
 	_, err := newRSARecipient("XYZ", nil)
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	_, err = newRSASigner("XYZ", nil)
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	enc := new(rsaEncrypterVerifier)
 	enc.publicKey = &rsaTestKey.PublicKey
 	_, err = enc.encryptKey([]byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	err = enc.verifyPayload([]byte{}, []byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	dec := new(rsaDecrypterSigner)
 	dec.privateKey = rsaTestKey
 	_, err = dec.decrypt(make([]byte, 256), "XYZ", randomKeyGenerator{size: 16})
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	_, err = dec.signPayload([]byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 }
 
 // RFC 7518 Section 3.5.
@@ -142,26 +119,21 @@ func TestRSAPSSVerifyRequiresSaltLengthEqualToHash(t *testing.T) {
 
 				// In FIPS 140 mode crypto/rsa caps the automatic salt length at the size of the hash.
 				if fips140.Enabled() && saltLength == rsa.PSSSaltLengthAuto {
-					if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
-						t.Errorf("verifyPayload rejected the automatic salt length in FIPS 140 mode: %v", err)
-					}
+					err = verifier.verifyPayload(payload, sig, tc.alg)
+					assert.NoError(t, err, "verifyPayload rejected the automatic salt length in FIPS 140 mode")
 
 					continue
 				}
 
-				if err = verifier.verifyPayload(payload, sig, tc.alg); err == nil {
-					t.Errorf("verifyPayload accepted a salt length of %d", saltLength)
-				}
+				err = verifier.verifyPayload(payload, sig, tc.alg)
+				assert.Error(t, err, "verifyPayload accepted a salt length of %d", saltLength)
 			}
 
 			sig, err := rsa.SignPSS(rand.Reader, rsaTestKey, tc.hash, hashed, &rsa.PSSOptions{SaltLength: tc.hash.Size()})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
-			if err = verifier.verifyPayload(payload, sig, tc.alg); err != nil {
-				t.Errorf("verifyPayload rejected a salt the size of the hash: %v", err)
-			}
+			err = verifier.verifyPayload(payload, sig, tc.alg)
+			assert.NoError(t, err, "verifyPayload rejected a salt the size of the hash")
 		})
 	}
 }
@@ -184,9 +156,8 @@ func TestECDHDecryptRejectsMalformedPrivateKey(t *testing.T) {
 
 		for name, key := range keys {
 			t.Run(string(alg)+"/"+name, func(t *testing.T) {
-				if _, err := obj.Decrypt(key); err == nil {
-					t.Error("Decrypt accepted a malformed private key")
-				}
+				_, err := obj.Decrypt(key)
+				assert.Error(t, err, "Decrypt accepted a malformed private key")
 			})
 		}
 	}
@@ -196,9 +167,8 @@ func TestNewEncrypterRejectsECDHESToAPointNotOnTheCurve(t *testing.T) {
 	key := &ecdsa.PublicKey{Curve: elliptic.P256(), X: big.NewInt(1), Y: big.NewInt(2)}
 
 	for _, alg := range []KeyAlgorithm{ECDH_ES, ECDH_ES_A128KW} {
-		if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: key}, nil); err == nil {
-			t.Errorf("NewEncrypter(%s) accepted a public key not on the curve", alg)
-		}
+		_, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: key}, nil)
+		assert.Error(t, err, "NewEncrypter(%s) accepted a public key not on the curve", alg)
 	}
 }
 
@@ -253,28 +223,20 @@ func TestPKCSKeyGeneratorFailure(t *testing.T) {
 	dec.privateKey = rsaTestKey
 	generator := failingKeyGenerator{}
 	_, err := dec.decrypt(make([]byte, 256), RSA1_5, generator)
-	if err != ErrCryptoFailure {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrCryptoFailure, "should return error on invalid algorithm")
 }
 
 func TestInvalidAlgorithmsEC(t *testing.T) {
 	_, err := newECDHRecipient("XYZ", nil)
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	_, err = newECDSASigner("XYZ", nil)
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 
 	enc := new(ecEncrypterVerifier)
 	enc.publicKey = &ecTestKey256.PublicKey
 	_, err = enc.encryptKey([]byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should return error on invalid algorithm")
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should return error on invalid algorithm")
 }
 
 func TestInvalidECKeyGen(t *testing.T) {
@@ -284,14 +246,10 @@ func TestInvalidECKeyGen(t *testing.T) {
 		publicKey: &ecTestKey256.PublicKey,
 	}
 
-	if gen.keySize() != 16 {
-		t.Error("ec key generator reported incorrect key size")
-	}
+	assert.Equal(t, 16, gen.keySize(), "ec key generator reported incorrect key size")
 
 	_, _, err := gen.genKey()
-	if err != nil {
-		t.Error("ec key generator failed to generate key", err)
-	}
+	assert.NoError(t, err, "ec key generator failed to generate key")
 }
 
 func TestInvalidECDecrypt(t *testing.T) {
@@ -308,9 +266,7 @@ func TestInvalidECDecrypt(t *testing.T) {
 	// Missing epk header
 	headers := rawHeader{}
 
-	if err := headers.set(headerAlgorithm, ECDH_ES); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, headers.set(headerAlgorithm, ECDH_ES))
 
 	want := "go-jose/go-jose: missing epk header"
 	_, err := dec.decryptKey(headers, &recipient, generator)
@@ -350,15 +306,11 @@ func TestDecryptWithIncorrectSize(t *testing.T) {
 
 	payload := make([]byte, 254)
 	_, err = dec.decrypt(payload, RSA1_5, keygen)
-	if err == nil {
-		t.Error("Invalid payload size should return error")
-	}
+	assert.Error(t, err, "Invalid payload size should return error")
 
 	payload = make([]byte, 257)
 	_, err = dec.decrypt(payload, RSA1_5, keygen)
-	if err == nil {
-		t.Error("Invalid payload size should return error")
-	}
+	assert.Error(t, err, "Invalid payload size should return error")
 }
 
 func TestPKCSDecryptNeverFails(t *testing.T) {
@@ -480,29 +432,17 @@ func TestInvalidEllipticCurve(t *testing.T) {
 	signer521 := ecDecrypterSigner{privateKey: ecTestKey521}
 
 	_, err := signer256.signPayload([]byte{}, ES384)
-	if err == nil {
-		t.Error("should not generate ES384 signature with P-256 key")
-	}
+	assert.Error(t, err, "should not generate ES384 signature with P-256 key")
 	_, err = signer256.signPayload([]byte{}, ES512)
-	if err == nil {
-		t.Error("should not generate ES512 signature with P-256 key")
-	}
+	assert.Error(t, err, "should not generate ES512 signature with P-256 key")
 	_, err = signer384.signPayload([]byte{}, ES256)
-	if err == nil {
-		t.Error("should not generate ES256 signature with P-384 key")
-	}
+	assert.Error(t, err, "should not generate ES256 signature with P-384 key")
 	_, err = signer384.signPayload([]byte{}, ES512)
-	if err == nil {
-		t.Error("should not generate ES512 signature with P-384 key")
-	}
+	assert.Error(t, err, "should not generate ES512 signature with P-384 key")
 	_, err = signer521.signPayload([]byte{}, ES256)
-	if err == nil {
-		t.Error("should not generate ES256 signature with P-521 key")
-	}
+	assert.Error(t, err, "should not generate ES256 signature with P-521 key")
 	_, err = signer521.signPayload([]byte{}, ES384)
-	if err == nil {
-		t.Error("should not generate ES384 signature with P-521 key")
-	}
+	assert.Error(t, err, "should not generate ES384 signature with P-521 key")
 }
 
 func TestInvalidECPublicKey(t *testing.T) {
@@ -524,9 +464,7 @@ func TestInvalidECPublicKey(t *testing.T) {
 
 	headers := rawHeader{}
 
-	if err := headers.set(headerAlgorithm, ECDH_ES); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, headers.set(headerAlgorithm, ECDH_ES))
 
 	headers[headerEPK] = makeRawMessage([]byte(`{"kty":"EC","crv":"P-256","x":"` +
 		newFixedSizeBuffer(invalid.X.Bytes(), 32).base64() + `","y":"` +
@@ -537,21 +475,15 @@ func TestInvalidECPublicKey(t *testing.T) {
 	}
 
 	_, err := dec.decryptKey(headers, &recipient, randomKeyGenerator{size: 16})
-	if err == nil {
-		t.Fatal("decrypter accepted JWS with invalid ECDH public key")
-	}
+	require.Error(t, err, "decrypter accepted JWS with invalid ECDH public key")
 
 	want := "go-jose/go-jose: invalid epk header"
-	if err.Error() != want {
-		t.Errorf("decryptKey with invalid ECDH public key: got %q, want %q", err, want)
-	}
+	assert.Equal(t, want, err.Error(), "decryptKey with invalid ECDH public key: got %q, want %q", err, want)
 }
 
 func TestInvalidAlgorithmEC(t *testing.T) {
 	err := ecEncrypterVerifier{publicKey: &ecTestKey256.PublicKey}.verifyPayload([]byte{}, []byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Fatal("should not accept invalid/unsupported algorithm")
-	}
+	require.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should not accept invalid/unsupported algorithm")
 }
 
 func TestECDHDecryptKeyRejectsEPKOnAnotherCurve(t *testing.T) {
@@ -582,11 +514,9 @@ func TestECDHDecryptKeyRejectsEPKOnAnotherCurve(t *testing.T) {
 				return
 			}
 
-			if err == nil {
-				t.Fatal("accepted an epk header on another curve")
-			}
+			require.Error(t, err, "accepted an epk header on another curve")
 
-			assert.Equal(t, err.Error(), tc.err)
+			assert.Equal(t, tc.err, err.Error())
 		})
 	}
 }
@@ -607,28 +537,21 @@ func TestECDSAVerifyRejectsWrongCurveForAlgorithm(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%s_with_%s", tc.alg, tc.curve.Params().Name), func(t *testing.T) {
 			key, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			payload := []byte("payload")
 			hasher := tc.hash.New()
 			hasher.Write(payload)
 
 			r, s, err := ecdsa.Sign(rand.Reader, key, hasher.Sum(nil))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			signature := make([]byte, 2*tc.sigOctets)
 			r.FillBytes(signature[:tc.sigOctets])
 			s.FillBytes(signature[tc.sigOctets:])
 
 			verifier := &ecEncrypterVerifier{publicKey: &key.PublicKey}
-			if err = verifier.verifyPayload(payload, signature, tc.alg); err == nil {
-				t.Errorf("verifyPayload accepted a %s signature under %s, want an error",
-					tc.curve.Params().Name, tc.alg)
-			}
+			assert.Error(t, verifier.verifyPayload(payload, signature, tc.alg))
 		})
 	}
 }
@@ -648,26 +571,20 @@ func TestECDSAVerifyAcceptsMatchingCurve(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(string(tc.alg), func(t *testing.T) {
 			key, err := ecdsa.GenerateKey(tc.curve, rand.Reader)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			signer := &ecDecrypterSigner{privateKey: key}
 			payload := []byte("payload")
 
 			sig, err := signer.signPayload(payload, tc.alg)
-			if err != nil {
-				t.Fatalf("signPayload: %v", err)
-			}
+			require.NoError(t, err, "signPayload")
 
 			verifier := &ecEncrypterVerifier{publicKey: &key.PublicKey}
-			if err = verifier.verifyPayload(payload, sig.Signature, tc.alg); err != nil {
-				t.Errorf("verifyPayload rejected a matching %s signature: %v", tc.alg, err)
-			}
+			err = verifier.verifyPayload(payload, sig.Signature, tc.alg)
+			assert.NoError(t, err, "verifyPayload rejected a matching %s signature", tc.alg)
 
-			if err = verifier.verifyPayload([]byte("other"), sig.Signature, tc.alg); err == nil {
-				t.Errorf("verifyPayload accepted a signature over a different payload")
-			}
+			err = verifier.verifyPayload([]byte("other"), sig.Signature, tc.alg)
+			assert.Error(t, err, "verifyPayload accepted a signature over a different payload")
 		})
 	}
 }
@@ -680,18 +597,15 @@ func TestECDSAVerifyRejectsNilKey(t *testing.T) {
 	}()
 
 	verifier := &ecEncrypterVerifier{publicKey: nil}
-	if err := verifier.verifyPayload([]byte("payload"), make([]byte, 64), ES256); err == nil {
-		t.Error("verifyPayload accepted a nil public key, want an error")
-	}
+	err := verifier.verifyPayload([]byte("payload"), make([]byte, 64), ES256)
+	assert.Error(t, err, "verifyPayload accepted a nil public key, want an error")
 }
 
 // RFC 7518 Sections 3.3, 3.5, 4.2 and 4.3 each require a modulus of at least
 // 2048 bits.
 func TestRSARejectsUndersizedKeys(t *testing.T) {
 	small, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signer := &rsaDecrypterSigner{privateKey: small}
 	verifier := &rsaEncrypterVerifier{publicKey: &small.PublicKey}
@@ -719,22 +633,17 @@ func TestRSARejectsUndersizedKeys(t *testing.T) {
 
 func TestRSAAcceptsMinimumKeySize(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, minRSAKeyBits)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signer := &rsaDecrypterSigner{privateKey: key}
 	verifier := &rsaEncrypterVerifier{publicKey: &key.PublicKey}
 
 	for _, alg := range []SignatureAlgorithm{RS256, PS512} {
 		sig, err := signer.signPayload([]byte("payload"), alg)
-		if err != nil {
-			t.Fatalf("signPayload(%s) with a %d bit key: %v", alg, minRSAKeyBits, err)
-		}
+		require.NoError(t, err, "signPayload(%s) with a %d bit key", alg, minRSAKeyBits)
 
-		if err = verifier.verifyPayload([]byte("payload"), sig.Signature, alg); err != nil {
-			t.Errorf("verifyPayload(%s) rejected a conforming key: %v", alg, err)
-		}
+		err = verifier.verifyPayload([]byte("payload"), sig.Signature, alg)
+		assert.NoError(t, err, "verifyPayload(%s) rejected a conforming key", alg)
 	}
 }
 
@@ -746,14 +655,12 @@ func TestRSARejectsNilKeys(t *testing.T) {
 	}()
 
 	verifier := &rsaEncrypterVerifier{publicKey: nil}
-	if err := verifier.verifyPayload([]byte("payload"), make([]byte, 256), RS256); err == nil {
-		t.Error("verifyPayload accepted a nil public key, want an error")
-	}
+	err := verifier.verifyPayload([]byte("payload"), make([]byte, 256), RS256)
+	assert.Error(t, err, "verifyPayload accepted a nil public key, want an error")
 
 	signer := &rsaDecrypterSigner{privateKey: nil}
-	if _, err := signer.signPayload([]byte("payload"), RS256); err == nil {
-		t.Error("signPayload accepted a nil private key, want an error")
-	}
+	_, err = signer.signPayload([]byte("payload"), RS256)
+	assert.Error(t, err, "signPayload accepted a nil private key, want an error")
 }
 
 // A low-order Ed25519 public key admits a single signature that verifies for
@@ -770,16 +677,13 @@ func TestEd25519VerifyRejectsLowOrderKey(t *testing.T) {
 	signature[0] = 0x01 // R = identity, S = 0
 
 	// Precondition: crypto/ed25519 itself accepts this, for any message.
-	if !ed25519.Verify(publicKey, []byte("first message"), signature) {
-		t.Fatal("precondition failed: crypto/ed25519 rejected the forgery")
-	}
+	require.True(t, ed25519.Verify(publicKey, []byte("first message"), signature), "precondition failed: crypto/ed25519 rejected the forgery")
 
 	verifier := &edEncrypterVerifier{publicKey: publicKey}
 
 	for _, message := range []string{"first message", "a completely different message"} {
-		if err := verifier.verifyPayload([]byte(message), signature, EdDSA); err == nil {
-			t.Errorf("verifyPayload accepted a low-order key for %q, want an error", message)
-		}
+		err := verifier.verifyPayload([]byte(message), signature, EdDSA)
+		assert.Error(t, err, "verifyPayload accepted a low-order key for %q, want an error", message)
 	}
 }
 
@@ -793,16 +697,14 @@ func TestEd25519RejectsMalformedKeys(t *testing.T) {
 
 	for _, publicKey := range []ed25519.PublicKey{nil, make([]byte, 31), make([]byte, 33)} {
 		verifier := &edEncrypterVerifier{publicKey: publicKey}
-		if err := verifier.verifyPayload([]byte("payload"), make([]byte, ed25519.SignatureSize), EdDSA); err == nil {
-			t.Errorf("verifyPayload accepted a %d byte public key, want an error", len(publicKey))
-		}
+		err := verifier.verifyPayload([]byte("payload"), make([]byte, ed25519.SignatureSize), EdDSA)
+		assert.Error(t, err, "verifyPayload accepted a %d byte public key, want an error", len(publicKey))
 	}
 
 	for _, privateKey := range []ed25519.PrivateKey{nil, make([]byte, 63), make([]byte, 65)} {
 		signer := &edDecrypterSigner{privateKey: privateKey}
-		if _, err := signer.signPayload([]byte("payload"), EdDSA); err == nil {
-			t.Errorf("signPayload accepted a %d byte private key, want an error", len(privateKey))
-		}
+		_, err := signer.signPayload([]byte("payload"), EdDSA)
+		assert.Error(t, err, "signPayload accepted a %d byte private key, want an error", len(privateKey))
 	}
 }
 
@@ -810,25 +712,19 @@ func TestEd25519RejectsMalformedKeys(t *testing.T) {
 // must still be rejected.
 func TestEd25519AcceptsValidKey(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signer := &edDecrypterSigner{privateKey: private}
 	verifier := &edEncrypterVerifier{publicKey: public}
 
 	sig, err := signer.signPayload([]byte("payload"), EdDSA)
-	if err != nil {
-		t.Fatalf("signPayload: %v", err)
-	}
+	require.NoError(t, err, "signPayload")
 
-	if err = verifier.verifyPayload([]byte("payload"), sig.Signature, EdDSA); err != nil {
-		t.Errorf("verifyPayload rejected a valid signature: %v", err)
-	}
+	err = verifier.verifyPayload([]byte("payload"), sig.Signature, EdDSA)
+	assert.NoError(t, err, "verifyPayload rejected a valid signature")
 
-	if err = verifier.verifyPayload([]byte("other"), sig.Signature, EdDSA); err == nil {
-		t.Error("verifyPayload accepted a signature over a different payload")
-	}
+	err = verifier.verifyPayload([]byte("other"), sig.Signature, EdDSA)
+	assert.Error(t, err, "verifyPayload accepted a signature over a different payload")
 }
 
 // RFC 9864 Section 2.2 registers "Ed25519" as the fully-specified identifier for
@@ -837,9 +733,7 @@ func TestEd25519AcceptsValidKey(t *testing.T) {
 // operation, so a signature made under one identifier verifies under the other.
 func TestEd25519FullySpecifiedAlgorithm(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signer := &edDecrypterSigner{privateKey: private}
 	verifier := &edEncrypterVerifier{publicKey: public}
@@ -848,14 +742,11 @@ func TestEd25519FullySpecifiedAlgorithm(t *testing.T) {
 
 	for _, signAlg := range algorithms {
 		sig, err := signer.signPayload([]byte("payload"), signAlg)
-		if err != nil {
-			t.Fatalf("signPayload(%s): %v", signAlg, err)
-		}
+		require.NoError(t, err, "signPayload(%s)", signAlg)
 
 		for _, verifyAlg := range algorithms {
-			if err = verifier.verifyPayload([]byte("payload"), sig.Signature, verifyAlg); err != nil {
-				t.Errorf("signed under %s, verifying under %s: %v", signAlg, verifyAlg, err)
-			}
+			err = verifier.verifyPayload([]byte("payload"), sig.Signature, verifyAlg)
+			assert.NoError(t, err, "signed under %s, verifying under %s", signAlg, verifyAlg)
 		}
 	}
 
@@ -867,30 +758,20 @@ func TestEd25519FullySpecifiedAlgorithm(t *testing.T) {
 
 func TestEd25519AlgorithmReachesTheHeader(t *testing.T) {
 	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	for _, alg := range []SignatureAlgorithm{EdDSA, Ed25519} {
 		signer, err := NewSigner(SigningKey{Algorithm: alg, Key: private}, nil)
-		if err != nil {
-			t.Fatalf("NewSigner(%s): %v", alg, err)
-		}
+		require.NoError(t, err, "NewSigner(%s)", alg)
 
 		obj, err := signer.Sign([]byte("payload"))
-		if err != nil {
-			t.Fatalf("Sign(%s): %v", alg, err)
-		}
+		require.NoError(t, err, "Sign(%s)", alg)
 
 		serialized, err := obj.CompactSerialize()
-		if err != nil {
-			t.Fatalf("CompactSerialize(%s): %v", alg, err)
-		}
+		require.NoError(t, err, "CompactSerialize(%s)", alg)
 
 		parsed, err := ParseSignedCompact(serialized, []SignatureAlgorithm{alg})
-		if err != nil {
-			t.Fatalf("ParseSignedCompact(%s): %v", alg, err)
-		}
+		require.NoError(t, err, "ParseSignedCompact(%s)", alg)
 
 		if got := parsed.Signatures[0].Header.Algorithm; got != string(alg) {
 			t.Errorf("header alg = %q, want %q", got, alg)
@@ -901,9 +782,8 @@ func TestEd25519AlgorithmReachesTheHeader(t *testing.T) {
 			other = Ed25519
 		}
 
-		if _, err = ParseSignedCompact(serialized, []SignatureAlgorithm{other}); err == nil {
-			t.Errorf("a %s token was accepted by a parse restricted to %s", alg, other)
-		}
+		_, err = ParseSignedCompact(serialized, []SignatureAlgorithm{other})
+		assert.Error(t, err, "a %s token was accepted by a parse restricted to %s", alg, other)
 	}
 }
 
@@ -912,32 +792,22 @@ func TestEd25519AlgorithmReachesTheHeader(t *testing.T) {
 // not a multiple of eight every genuine RSA1_5 message was rejected as the wrong size.
 func TestRSA1_5DecryptsWithModulusNotAMultipleOfEightBits(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2052)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if key.N.BitLen()%8 == 0 {
 		t.Fatalf("expected a modulus whose bit length is not a multiple of 8, got %d bits", key.N.BitLen())
 	}
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: RSA1_5, Key: &key.PublicKey}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("hello world"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	plaintext, err := obj.Decrypt(key)
-	if err != nil {
-		t.Fatalf("failed to decrypt RSA1_5 message for a %d bit modulus: %v", key.N.BitLen(), err)
-	}
+	require.NoError(t, err)
 
-	if string(plaintext) != "hello world" {
-		t.Fatalf("decrypted %q, want %q", plaintext, "hello world")
-	}
+	require.Equal(t, "hello world", string(plaintext), "decrypted %q, want %q", plaintext, "hello world")
 }
 
 // An ecdsa key without a curve does not match any algorithm, and was already rejected for that. Building the error
@@ -949,9 +819,8 @@ func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
 			return
 		}
 
-		if _, err = signer.Sign([]byte("payload")); err == nil {
-			t.Fatal("signed with an ecdsa key without a curve")
-		}
+		_, err = signer.Sign([]byte("payload"))
+		require.Error(t, err, "signed with an ecdsa key without a curve")
 	})
 
 	t.Run("ShouldNotPanicWhenVerifying", func(t *testing.T) {
@@ -961,9 +830,8 @@ func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
 		obj, err := signer.Sign([]byte("payload"))
 		require.NoError(t, err)
 
-		if _, err = obj.Verify(&ecdsa.PublicKey{}); err == nil {
-			t.Fatal("verified with an ecdsa key without a curve")
-		}
+		_, err = obj.Verify(&ecdsa.PublicKey{})
+		require.Error(t, err, "verified with an ecdsa key without a curve")
 	})
 
 	t.Run("ShouldNotPanicWhenSigningWithTypedNilCurve", func(t *testing.T) {
@@ -972,9 +840,8 @@ func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
 			return
 		}
 
-		if _, err = signer.Sign([]byte("payload")); err == nil {
-			t.Fatal("signed with an ecdsa key with a typed nil curve")
-		}
+		_, err = signer.Sign([]byte("payload"))
+		require.Error(t, err, "signed with an ecdsa key with a typed nil curve")
 	})
 
 	t.Run("ShouldNotPanicWhenVerifyingWithTypedNilCurve", func(t *testing.T) {
@@ -984,9 +851,8 @@ func TestECDSAKeyWithoutCurveReturnsError(t *testing.T) {
 		obj, err := signer.Sign([]byte("payload"))
 		require.NoError(t, err)
 
-		if _, err = obj.Verify(&ecdsa.PublicKey{Curve: (*elliptic.CurveParams)(nil)}); err == nil {
-			t.Fatal("verified with an ecdsa key with a typed nil curve")
-		}
+		_, err = obj.Verify(&ecdsa.PublicKey{Curve: (*elliptic.CurveParams)(nil)})
+		require.Error(t, err, "verified with an ecdsa key with a typed nil curve")
 	})
 }
 
@@ -1004,4 +870,39 @@ func TestECDSACurveMismatchNamesTheCurve(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ES384 requires the P-384 curve") {
 		t.Errorf("signPayload() error = %v, want it to name the P-384 curve", err)
 	}
+}
+
+func TestECDSAKeyWithoutCoordinatesIsAnError(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	public := &ecdsa.PublicKey{Curve: elliptic.P256()}
+	private := &ecdsa.PrivateKey{PublicKey: *public, D: key.D}
+
+	t.Run("NewEncrypter", func(t *testing.T) {
+		_, err := NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: public}, nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("Verify", func(t *testing.T) {
+		signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: key}, nil)
+		require.NoError(t, err)
+
+		object, err := signer.Sign([]byte("payload"))
+		require.NoError(t, err)
+
+		_, err = object.Verify(public)
+		assert.Error(t, err)
+	})
+
+	t.Run("Decrypt", func(t *testing.T) {
+		encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: &key.PublicKey}, nil)
+		require.NoError(t, err)
+
+		object, err := encrypter.Encrypt([]byte("payload"))
+		require.NoError(t, err)
+
+		_, err = object.Decrypt(private)
+		assert.Error(t, err)
+	})
 }

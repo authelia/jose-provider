@@ -27,8 +27,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/assert"
 )
 
 const trustedCA = `
@@ -90,24 +92,16 @@ Wq2b2GCGP4wMEZuqCcE72fiue295ovPkNsbEjTQk/ijWza0=
 
 func TestParseEmptySigned(t *testing.T) {
 	_, err := ParseSigned("", []SignatureAlgorithm{HS256})
-	if !errors.Is(err, errEmptyInput) {
-		t.Errorf("parsing empty input: got %s, want %s", err, errEmptyInput)
-	}
+	assert.ErrorIs(t, err, errEmptyInput, "parsing empty input: got %s, want %s", err, errEmptyInput)
 
 	_, err = ParseSignedCompact("", []SignatureAlgorithm{HS256})
-	if !errors.Is(err, errEmptyInput) {
-		t.Errorf("parsing empty input: got %s, want %s", err, errEmptyInput)
-	}
+	assert.ErrorIs(t, err, errEmptyInput, "parsing empty input: got %s, want %s", err, errEmptyInput)
 
 	_, err = ParseSignedJSON("", []SignatureAlgorithm{HS256})
-	if !errors.Is(err, errEmptyInput) {
-		t.Errorf("parsing empty input: got %s, want %s", err, errEmptyInput)
-	}
+	assert.ErrorIs(t, err, errEmptyInput, "parsing empty input: got %s, want %s", err, errEmptyInput)
 
 	_, err = ParseDetached("", []byte{}, []SignatureAlgorithm{HS256})
-	if !errors.Is(err, errEmptyInput) {
-		t.Errorf("parsing empty input: got %s, want %s", err, errEmptyInput)
-	}
+	assert.ErrorIs(t, err, errEmptyInput, "parsing empty input: got %s, want %s", err, errEmptyInput)
 }
 
 func TestEmbeddedHMAC(t *testing.T) {
@@ -115,25 +109,19 @@ func TestEmbeddedHMAC(t *testing.T) {
 	msg := `{"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ","protected":"eyJhbGciOiJIUzI1NiIsICJqd2siOnsia3R5Ijoib2N0IiwgImsiOiJNVEV4In19","signature":"lvo41ZZsuHwQvSh0uJtEXRR3vmuBJ7in6qMoD7p9jyo"}`
 
 	_, err := ParseSigned(msg, []SignatureAlgorithm{HS256})
-	if err == nil {
-		t.Error("should not allow parsing JWS with embedded JWK with HMAC key")
-	}
+	assert.Error(t, err, "should not allow parsing JWS with embedded JWK with HMAC key")
 }
 
 func TestCompactParseJWS(t *testing.T) {
 	// Should parse
 	msg := "eyJhbGciOiJYWVoifQ.cGF5bG9hZA.c2lnbmF0dXJl"
 	_, err := ParseSigned(msg, []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-	if err != nil {
-		t.Error("Unable to parse valid message:", err)
-	}
+	assert.NoError(t, err, "Unable to parse valid message")
 
 	// Should parse (detached signature missing payload)
 	msg = "eyJhbGciOiJYWVoifQ..c2lnbmF0dXJl"
 	_, err = ParseSigned(msg, []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-	if err != nil {
-		t.Error("Unable to parse valid message:", err)
-	}
+	assert.NoError(t, err, "Unable to parse valid message")
 
 	// Messages that should fail to parse
 	failures := []string{
@@ -154,9 +142,7 @@ func TestCompactParseJWS(t *testing.T) {
 
 	for i := range failures {
 		_, err = ParseSigned(failures[i], []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-		if err == nil {
-			t.Error("Able to parse invalid message")
-		}
+		assert.Error(t, err, "Able to parse invalid message")
 	}
 }
 
@@ -173,9 +159,7 @@ func TestFullParseJWS(t *testing.T) {
 
 	for i := range successes {
 		_, err := ParseSigned(successes[i], []SignatureAlgorithm{SignatureAlgorithm("ABC")})
-		if err != nil {
-			t.Error("Unable to parse valid message", err, successes[i])
-		}
+		assert.NoError(t, err)
 	}
 
 	// Messages that should fail to parse
@@ -206,9 +190,7 @@ func TestFullParseJWS(t *testing.T) {
 
 	for i := range failures {
 		_, err := ParseSigned(failures[i], []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-		if err == nil {
-			t.Error("Able to parse invalid message", err, failures[i])
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -248,25 +230,17 @@ func TestParseSignedJSONDoesNotRewriteMemberNames(t *testing.T) {
 	payload := []byte(`{"resource":"newAccount"}`)
 	protected := rawHeader{}
 	err := protected.set(headerAlgorithm, RS256)
-	if err != nil {
-		t.Fatalf("set alg: %v", err)
-	}
+	require.NoError(t, err, "set alg")
 	protectedJSON, err := json.Marshal(protected)
-	if err != nil {
-		t.Fatalf("marshal protected: %v", err)
-	}
+	require.NoError(t, err, "marshal protected")
 	protectedB64 := newBuffer(protectedJSON).base64()
 	payloadB64 := newBuffer(payload).base64()
 	signingInput := []byte(protectedB64 + "." + payloadB64)
 	signature, err := rsaDecrypterSigner{privateKey: rsaTestKey}.signPayload(signingInput, RS256)
-	if err != nil {
-		t.Fatalf("sign payload: %v", err)
-	}
+	require.NoError(t, err, "sign payload")
 
 	jwkJSON, err := json.Marshal(JSONWebKey{Key: &rsaTestKey.PublicKey})
-	if err != nil {
-		t.Fatalf("marshal jwk: %v", err)
-	}
+	require.NoError(t, err, "marshal jwk")
 	raw := `{"payload":"` + payloadB64 +
 		`","protected":"` + protectedB64 +
 		`","hea der":{"jwk":` + string(jwkJSON) +
@@ -274,25 +248,17 @@ func TestParseSignedJSONDoesNotRewriteMemberNames(t *testing.T) {
 		`,"signature":"` + newBuffer(signature.Signature).base64() + `"}`
 
 	parsed, err := ParseSigned(raw, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatalf("ParseSigned: %v", err)
-	}
+	require.NoError(t, err, "ParseSigned")
 	header := parsed.Signatures[0].Header
 	if header.JSONWebKey != nil {
 		t.Fatal("ParseSigned exposed a JWK from a whitespace-mutated member name")
 	}
 	_, ok := header.ExtraHeaders[HeaderKey("url")]
-	if ok {
-		t.Fatal("ParseSigned exposed a header from a whitespace-mutated member name")
-	}
+	require.False(t, ok, "ParseSigned exposed a header from a whitespace-mutated member name")
 
 	verified, err := parsed.Verify(&rsaTestKey.PublicKey)
-	if err != nil {
-		t.Fatalf("Verify: %v", err)
-	}
-	if string(verified) != string(payload) {
-		t.Fatalf("verified payload = %q, want %q", verified, payload)
-	}
+	require.NoError(t, err, "Verify")
+	require.Equal(t, string(payload), string(verified), "verified payload = %q, want %q", verified, payload)
 }
 
 func TestVerifyFlattenedWithIncludedUnprotectedKey(t *testing.T) {
@@ -310,23 +276,15 @@ func TestVerifyFlattenedWithIncludedUnprotectedKey(t *testing.T) {
 	}`
 
 	jws, err := ParseSigned(input, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatal("Unable to parse valid message", err)
-	}
-	if len(jws.Signatures) != 1 {
-		t.Error("Too many or too few signatures.")
-	}
+	require.NoError(t, err, "Unable to parse valid message")
+	assert.Len(t, jws.Signatures, 1, "Too many or too few signatures.")
 	sig := jws.Signatures[0]
 	if sig.Header.JSONWebKey == nil {
 		t.Error("No JWK in signature header.")
 	}
 	payload, err := jws.Verify(sig.Header.JSONWebKey)
-	if err != nil {
-		t.Errorf("Signature did not validate: %v", err)
-	}
-	if string(payload) != "foo\n" {
-		t.Errorf("Payload was incorrect: '%s' should have been 'foo\\n'", string(payload))
-	}
+	assert.NoError(t, err, "Signature did not validate")
+	assert.Equal(t, "foo\n", string(payload), "Payload was incorrect: '%s' should have been 'foo\\n'", string(payload))
 }
 
 // Test verification of a detached signature
@@ -338,9 +296,7 @@ func TestDetachedVerifyJWS(t *testing.T) {
 		NKoEcR0HjmvzzdMoUChhkGH5TaNbZyollULTggepaYUKS8QphqdSDMWiSetKG+g6V87lv6
 		CVYyK1FF6g7Esp5OOj5pNn3/bmF+7V+b7TvK91NCIlURCjE9toRgNoIP4TDnWRn/vvfZ3G
 		zNrtWmlizqz3r5KdvIs71ahWgMUSD4wfazrwIDAQAB`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	sampleMessages := []string{
 		"eyJhbGciOiJSUzI1NiJ9.TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ.YHX849fvekz6wJGeyqnQhFqyHFcUXNJKj3o2w3ddR46YLlsCopUJrlifRU_ZuTWzpYxt5oC--T2eoqMhlCvltSWrE5_1_EumqiMfAYsZULx9E6Jns7q3w7mttonYFSIh7aR3-yg2HMMfTCgoAY1y_AZ4VjXwHDcZ5gu1oZDYgvZF4uXtCmwT6e5YtR1m8abiWPF8BgoTG_BD3KV6ClLj_QQiNFdfdxAMDw7vKVOKG1T7BFtz6cDs2Q3ILS4To5E2IjcVSSYS8mi77EitCrWmrqbK_G3WCdKeUFGnMnyuKXaCDy_7FLpAZ6Z5RomRr5iskXeJZdZqIKcJV8zl4fpsPA",
@@ -375,24 +331,16 @@ func TestVerifyFlattenedWithPrivateProtected(t *testing.T) {
 	input := `{"header":{"alg":"RS256","jwk":{"kty":"RSA","n":"7ixeydcbxxppzxrBphrW1atUiEZqTpiHDpI-79olav5XxAgWolHmVsJyxzoZXRxmtED8PF9-EICZWBGdSAL9ZTD0hLUCIsPcpdgT_LqNW3Sh2b2caPL2hbMF7vsXvnCGg9varpnHWuYTyRrCLUF9vM7ES-V3VCYTa7LcCSRm56Gg9r19qar43Z9kIKBBxpgt723v2cC4bmLmoAX2s217ou3uCpCXGLOeV_BesG4--Nl3pso1VhCfO85wEWjmW6lbv7Kg4d7Jdkv5DjDZfJ086fkEAYZVYGRpIgAvJBH3d3yKDCrSByUEud1bWuFjQBmMaeYOrVDXO_mbYg5PwUDMhw","e":"AQAB"}},"protected":"eyJub25jZSI6IjhISWVwVU5GWlVhLWV4S1RyWFZmNGcifQ","payload":"eyJjb250YWN0IjpbIm1haWx0bzpmb29AYmFyLmNvbSJdfQ","signature":"AyvVGMgXsQ1zTdXrZxE_gyO63pQgotL1KbI7gv6Wi8I7NRy0iAOkDAkWcTQT9pcCYApJ04lXfEDZfP5i0XgcFUm_6spxi5mFBZU-NemKcvK9dUiAbXvb4hB3GnaZtZiuVnMQUb_ku4DOaFFKbteA6gOYCnED_x7v0kAPHIYrQnvIa-KZ6pTajbV9348zgh9TL7NgGIIsTcMHd-Jatr4z1LQ0ubGa8tS300hoDhVzfoDQaEetYjCo1drR1RmdEN1SIzXdHOHfubjA3ZZRbrF_AJnNKpRRoIwzu1VayOhRmdy1qVSQZq_tENF4VrQFycEL7DhG7JLoXC4T2p1urwMlsw"}`
 
 	jws, err := ParseSigned(input, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Error("Unable to parse valid message.")
-	}
-	if len(jws.Signatures) != 1 {
-		t.Error("Too many or too few signatures.")
-	}
+	assert.NoError(t, err, "Unable to parse valid message.")
+	assert.Len(t, jws.Signatures, 1, "Too many or too few signatures.")
 	sig := jws.Signatures[0]
 	if sig.Header.JSONWebKey == nil {
 		t.Error("No JWK in signature header.")
 	}
 	payload, err := jws.Verify(sig.Header.JSONWebKey)
-	if err != nil {
-		t.Errorf("Signature did not validate: %v", err)
-	}
+	assert.NoError(t, err, "Signature did not validate")
 	expected := "{\"contact\":[\"mailto:foo@bar.com\"]}"
-	if string(payload) != expected {
-		t.Errorf("Payload was incorrect: '%s' should have been '%s'", string(payload), expected)
-	}
+	assert.Equal(t, expected, string(payload), "Payload was incorrect: '%s' should have been '%s'", string(payload), expected)
 }
 
 // Test vectors generated with nimbus-jose-jwt
@@ -428,9 +376,7 @@ func TestSampleNimbusJWSMessagesRSA(t *testing.T) {
 			t.Error("unable to verify message", msg, err)
 			continue
 		}
-		if string(payload) != "Lorem ipsum dolor sit amet" {
-			t.Error("payload is not what we expected for msg", msg)
-		}
+		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "%v %v", "payload is not what we expected for msg", msg)
 	}
 }
 
@@ -468,9 +414,7 @@ func TestSampleNimbusJWSMessagesEC(t *testing.T) {
 			t.Error("unable to verify message", msg, err)
 			continue
 		}
-		if string(payload) != "Lorem ipsum dolor sit amet" {
-			t.Error("payload is not what we expected for msg", msg)
-		}
+		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "%v %v", "payload is not what we expected for msg", msg)
 	}
 }
 
@@ -478,36 +422,20 @@ func TestHeaderFieldsCompact(t *testing.T) {
 	msg := "eyJhbGciOiJFUzUxMiJ9.TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ.AeYNFC1rwIgQv-5fwd8iRyYzvTaSCYTEICepgu9gRId-IW99kbSVY7yH0MvrQnqI-a0L8zwKWDR35fW5dukPAYRkADp3Y1lzqdShFcEFziUVGo46vqbiSajmKFrjBktJcCsfjKSaLHwxErF-T10YYPCQFHWb2nXJOOI3CZfACYqgO84g"
 
 	obj, err := ParseSigned(msg, []SignatureAlgorithm{ES512})
-	if err != nil {
-		t.Fatal("unable to parse message", msg, err)
-	}
-	if obj.Signatures[0].Header.Algorithm != "ES512" {
-		t.Error("merged header did not contain expected alg value")
-	}
-	if obj.Signatures[0].Protected.Algorithm != "ES512" {
-		t.Error("protected header did not contain expected alg value")
-	}
-	if obj.Signatures[0].Unprotected.Algorithm != "" {
-		t.Error("unprotected header contained an alg value")
-	}
+	require.NoError(t, err, "%v %v", "unable to parse message", msg)
+	assert.Equal(t, "ES512", obj.Signatures[0].Header.Algorithm, "merged header did not contain expected alg value")
+	assert.Equal(t, "ES512", obj.Signatures[0].Protected.Algorithm, "protected header did not contain expected alg value")
+	assert.Equal(t, "", obj.Signatures[0].Unprotected.Algorithm, "unprotected header contained an alg value")
 }
 
 func TestHeaderFieldsFull(t *testing.T) {
 	msg := `{"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ","protected":"eyJhbGciOiJFUzUxMiJ9","header":{"custom":"test"},"signature":"AeYNFC1rwIgQv-5fwd8iRyYzvTaSCYTEICepgu9gRId-IW99kbSVY7yH0MvrQnqI-a0L8zwKWDR35fW5dukPAYRkADp3Y1lzqdShFcEFziUVGo46vqbiSajmKFrjBktJcCsfjKSaLHwxErF-T10YYPCQFHWb2nXJOOI3CZfACYqgO84g"}`
 
 	obj, err := ParseSigned(msg, []SignatureAlgorithm{ES512})
-	if err != nil {
-		t.Fatal("unable to parse message", msg, err)
-	}
-	if obj.Signatures[0].Header.Algorithm != "ES512" {
-		t.Error("merged header did not contain expected alg value")
-	}
-	if obj.Signatures[0].Protected.Algorithm != "ES512" {
-		t.Error("protected header did not contain expected alg value")
-	}
-	if obj.Signatures[0].Unprotected.Algorithm != "" {
-		t.Error("unprotected header contained an alg value")
-	}
+	require.NoError(t, err, "%v %v", "unable to parse message", msg)
+	assert.Equal(t, "ES512", obj.Signatures[0].Header.Algorithm, "merged header did not contain expected alg value")
+	assert.Equal(t, "ES512", obj.Signatures[0].Protected.Algorithm, "protected header did not contain expected alg value")
+	assert.Equal(t, "", obj.Signatures[0].Unprotected.Algorithm, "unprotected header contained an alg value")
 	if obj.Signatures[0].Unprotected.ExtraHeaders["custom"] != "test" {
 		t.Error("unprotected header did not contain custom header value")
 	}
@@ -515,12 +443,8 @@ func TestHeaderFieldsFull(t *testing.T) {
 
 func TestErrorMissingPayloadJWS(t *testing.T) {
 	_, err := (&rawJSONWebSignature{}).sanitized([]SignatureAlgorithm{RS256})
-	if err == nil {
-		t.Error("was able to parse message with missing payload")
-	}
-	if !strings.Contains(err.Error(), "missing payload") {
-		t.Errorf("unexpected error message, should contain 'missing payload': %s", err)
-	}
+	assert.Error(t, err, "was able to parse message with missing payload")
+	assert.Contains(t, err.Error(), "missing payload", "unexpected error message, should contain 'missing payload': %s", err)
 }
 
 func TestErrorUnexpectedSignatureAlgorithmInProtected(t *testing.T) {
@@ -528,13 +452,9 @@ func TestErrorUnexpectedSignatureAlgorithmInProtected(t *testing.T) {
 	msg := `{"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ","protected":"eyJhbGciOiJIUzI1NiIsICJqd2siOnsia3R5Ijoib2N0IiwgImsiOiJNVEV4In19","signature":"lvo41ZZsuHwQvSh0uJtEXRR3vmuBJ7in6qMoD7p9jyo"}`
 
 	_, err := ParseSigned(msg, []SignatureAlgorithm{ES256})
-	if err == nil {
-		t.Fatal("was able to parse message with unexpected signature algorithm")
-	}
+	require.Error(t, err, "was able to parse message with unexpected signature algorithm")
 	var errUnexpectedSigAlg *ErrUnexpectedSignatureAlgorithm
-	if !errors.As(err, &errUnexpectedSigAlg) {
-		t.Fatal("unexpected error type, should be UnsupportedAlgorithmError")
-	}
+	require.True(t, errors.As(err, &errUnexpectedSigAlg), "unexpected error type, should be UnsupportedAlgorithmError")
 	if errUnexpectedSigAlg.Got != HS256 {
 		t.Fatalf("unexpected algo should be HS256, got: %s", errUnexpectedSigAlg.Got)
 	}
@@ -559,13 +479,9 @@ func TestErrorUnexpectedSignatureAlgorithmInSignatures(t *testing.T) {
 	}`
 
 	_, err := ParseSigned(msg, []SignatureAlgorithm{ES256})
-	if err == nil {
-		t.Fatal("was able to parse message with unexpected signature algorithm")
-	}
+	require.Error(t, err, "was able to parse message with unexpected signature algorithm")
 	var errUnexpectedSigAlg *ErrUnexpectedSignatureAlgorithm
-	if !errors.As(err, &errUnexpectedSigAlg) {
-		t.Fatal("unexpected error type, should be UnsupportedAlgorithmError")
-	}
+	require.True(t, errors.As(err, &errUnexpectedSigAlg), "unexpected error type, should be UnsupportedAlgorithmError")
 	if errUnexpectedSigAlg.Got != HS256 {
 		t.Fatalf("unexpected algo should be HS256, got: %s", errUnexpectedSigAlg.Got)
 	}
@@ -592,9 +508,8 @@ func TestNullHeaderValue(t *testing.T) {
 			t.Errorf("ParseSigned panic'd when parsing a message with a null protected header value")
 		}
 	}()
-	if _, err := ParseSigned(msg, []SignatureAlgorithm{ES256}); err != nil {
-		t.Fatal(err)
-	}
+	_, err := ParseSigned(msg, []SignatureAlgorithm{ES256})
+	require.NoError(t, err)
 }
 
 // Test for bug:
@@ -609,24 +524,16 @@ func TestEmbedJWKBug(t *testing.T) {
 	}
 
 	signer, err := NewSigner(signerKey, &SignerOptions{EmbedJWK: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signerNoEmbed, err := NewSigner(signerKey, &SignerOptions{EmbedJWK: false})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	jws, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	jwsNoEmbed, err := signerNoEmbed.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// This used to panic with:
 	// json: error calling MarshalJSON for type *jose.JSONWebKey: go-jose/go-jose: unknown key type '%!s(<nil>)'
@@ -636,24 +543,14 @@ func TestEmbedJWKBug(t *testing.T) {
 	// Expected output with embed set to true is a JWS with the public JWK embedded, with kid header empty.
 	// Expected output with embed set to false is that we set the kid header for key identification instead.
 	parsed, err := ParseSigned(output, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsedNoEmbed, err := ParseSigned(outputNoEmbed, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if parsed.Signatures[0].Header.KeyID != "" {
-		t.Error("expected kid field in protected header to be empty")
-	}
-	if parsed.Signatures[0].Header.JSONWebKey.KeyID != "rsa-test-key" {
-		t.Error("expected rsa-test-key to be kid in embedded JWK in protected header")
-	}
-	if parsedNoEmbed.Signatures[0].Header.KeyID != "rsa-test-key" {
-		t.Error("expected kid field in protected header to be rsa-test-key")
-	}
+	assert.Equal(t, "", parsed.Signatures[0].Header.KeyID, "expected kid field in protected header to be empty")
+	assert.Equal(t, "rsa-test-key", parsed.Signatures[0].Header.JSONWebKey.KeyID, "expected rsa-test-key to be kid in embedded JWK in protected header")
+	assert.Equal(t, "rsa-test-key", parsedNoEmbed.Signatures[0].Header.KeyID, "expected kid field in protected header to be rsa-test-key")
 	if parsedNoEmbed.Signatures[0].Header.JSONWebKey != nil {
 		t.Error("expected no embedded JWK to be present")
 	}
@@ -692,19 +589,13 @@ func TestJWSWithCertificateChain(t *testing.T) {
 		signer, err := NewSigner(signerKey, &SignerOptions{
 			ExtraHeaders: map[HeaderKey]any{HeaderKey("x5c"): testCase.chain},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		signed, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		parsed, err := ParseSigned(signed.FullSerialize(), []SignatureAlgorithm{RS256})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		opts := x509.VerifyOptions{
 			DNSName: "TrustedSigner",
@@ -712,17 +603,13 @@ func TestJWSWithCertificateChain(t *testing.T) {
 		}
 
 		ok := opts.Roots.AppendCertsFromPEM([]byte(testCase.root))
-		if !ok {
-			t.Fatal("failed to parse trusted root certificate")
-		}
+		require.True(t, ok, "failed to parse trusted root certificate")
 
 		if len(testCase.intermediates) > 0 {
 			opts.Intermediates = x509.NewCertPool()
 			for _, intermediate := range testCase.intermediates {
 				ok := opts.Intermediates.AppendCertsFromPEM([]byte(intermediate))
-				if !ok {
-					t.Fatal("failed to parse trusted root certificate")
-				}
+				require.True(t, ok, "failed to parse trusted root certificate")
 			}
 		}
 
@@ -741,32 +628,20 @@ func TestDetachedCompactSerialization(t *testing.T) {
 	exp := "eyJhbGciOiJSUzI1NiJ9..W5tc_EUhxexcvLYEEOckyyvdb__M5DQIVpg6Nmk1XGM"
 
 	obj, err := ParseSigned(msg, []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ser, err := obj.DetachedCompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if ser != exp {
-		t.Fatalf("got '%s', expected '%s'", ser, exp)
-	}
+	require.Equal(t, exp, ser, "got '%s', expected '%s'", ser, exp)
 
 	obj, err = ParseDetached(ser, []byte("$.02"), []SignatureAlgorithm{RS256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ser, err = obj.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if ser != msg {
-		t.Fatalf("got '%s', expected '%s'", ser, msg)
-	}
+	require.Equal(t, msg, ser, "got '%s', expected '%s'", ser, msg)
 }
 
 func TestJWSComputeAuthDataBase64(t *testing.T) {
@@ -778,9 +653,7 @@ func TestJWSComputeAuthDataBase64(t *testing.T) {
 		},
 	})
 	// Invalid header, should return error
-	if err == nil {
-		t.Errorf("expected error when computing auth data for invalid signature")
-	}
+	assert.Error(t, err, "expected error when computing auth data for invalid signature")
 
 	payload := []byte{0x01}
 	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
@@ -846,18 +719,16 @@ func TestParseSignedJSONRejectsAProtectedHeaderWhichIsNotAnObject(t *testing.T) 
 			}
 
 			for name, input := range inputs {
-				if _, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256}); err == nil {
-					t.Errorf("%s: ParseSignedJSON accepted a protected header of %s", name, protected)
-				}
+				_, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256})
+				assert.Error(t, err, "%s: ParseSignedJSON accepted a protected header of %s", name, protected)
 			}
 		})
 	}
 
 	b64 := base64.RawURLEncoding.EncodeToString([]byte(` {"alg":"HS256"} `))
 
-	if _, err := ParseSignedJSON(`{"protected":"`+b64+`","payload":"cGF5bG9hZA","signature":"AAAA"}`, []SignatureAlgorithm{HS256}); err != nil {
-		t.Errorf("ParseSignedJSON rejected a protected header object surrounded by whitespace: %v", err)
-	}
+	_, err := ParseSignedJSON(`{"protected":"`+b64+`","payload":"cGF5bG9hZA","signature":"AAAA"}`, []SignatureAlgorithm{HS256})
+	assert.NoError(t, err, "ParseSignedJSON rejected a protected header object surrounded by whitespace")
 }
 
 // RFC 7493 Section 2.1.
@@ -865,19 +736,15 @@ func TestJWSHeaderRejectsInvalidUnicode(t *testing.T) {
 	for _, header := range []string{`{"alg":"HS256","kid":"\ud800"}`, "{\"alg\":\"HS256\",\"kid\":\"a\xffb\"}"} {
 		input := base64.RawURLEncoding.EncodeToString([]byte(header)) + ".cGF5bG9hZA.AAAA"
 
-		if _, err := ParseSignedCompact(input, []SignatureAlgorithm{HS256}); err == nil {
-			t.Errorf("ParseSignedCompact accepted the header %q", header)
-		}
+		_, err := ParseSignedCompact(input, []SignatureAlgorithm{HS256})
+		assert.Error(t, err, "ParseSignedCompact accepted the header %q", header)
 	}
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: bytes.Repeat([]byte{1}, 32)}, (&SignerOptions{}).WithHeader("x", "a\xffb"))
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
-	if _, err = signer.Sign([]byte("payload")); err == nil {
-		t.Error("Sign accepted a header value which is not valid UTF-8")
-	}
+	_, err = signer.Sign([]byte("payload"))
+	assert.Error(t, err, "Sign accepted a header value which is not valid UTF-8")
 }
 
 // RFC 7797 Section 3.
@@ -891,9 +758,8 @@ func TestParseSignedJSONRejectsUnprotectedB64(t *testing.T) {
 		}
 
 		for name, input := range inputs {
-			if _, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256}); err == nil {
-				t.Errorf("%s: ParseSignedJSON accepted an unprotected b64 of %s", name, b64)
-			}
+			_, err := ParseSignedJSON(input, []SignatureAlgorithm{HS256})
+			assert.Error(t, err, "%s: ParseSignedJSON accepted an unprotected b64 of %s", name, b64)
 		}
 	}
 }
@@ -915,24 +781,16 @@ func TestParseSignedDoesNotStripCompactWhitespace(t *testing.T) {
 	key := []byte("0123456789ABCDEF0123456789ABCDEF")
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, nil)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
 	obj, err := signer.Sign([]byte("payload"))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
 	compact, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	detached, err := obj.DetachedCompactSerialize()
-	if err != nil {
-		t.Fatalf("DetachedCompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "DetachedCompactSerialize")
 
 	testCases := []struct {
 		name     string
@@ -970,17 +828,14 @@ func TestParseSignedDoesNotStripCompactWhitespace(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ParseSigned(tc.have, []SignatureAlgorithm{HS256}); err == nil {
-				t.Error("ParseSigned accepted compact serialization with internal whitespace")
-			}
+			_, err := ParseSigned(tc.have, []SignatureAlgorithm{HS256})
+			assert.Error(t, err, "ParseSigned accepted compact serialization with internal whitespace")
 
-			if _, err := ParseSignedCompact(tc.have, []SignatureAlgorithm{HS256}); err == nil {
-				t.Error("ParseSignedCompact accepted compact serialization with internal whitespace")
-			}
+			_, err = ParseSignedCompact(tc.have, []SignatureAlgorithm{HS256})
+			assert.Error(t, err, "ParseSignedCompact accepted compact serialization with internal whitespace")
 
-			if _, err := ParseDetached(tc.detached, []byte("payload"), []SignatureAlgorithm{HS256}); err == nil {
-				t.Error("ParseDetached accepted compact serialization with internal whitespace")
-			}
+			_, err = ParseDetached(tc.detached, []byte("payload"), []SignatureAlgorithm{HS256})
+			assert.Error(t, err, "ParseDetached accepted compact serialization with internal whitespace")
 		})
 	}
 }
@@ -991,44 +846,29 @@ func TestParseSignedTrimsOuterWhitespace(t *testing.T) {
 	key := []byte("0123456789ABCDEF0123456789ABCDEF")
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, nil)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
 	obj, err := signer.Sign([]byte("payload"))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
 	compact, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	padded := "\n  " + compact + "  \n"
 
 	parsed, err := ParseSigned(padded, []SignatureAlgorithm{HS256})
-	if err != nil {
-		t.Fatalf("ParseSigned rejected compact serialization with outer whitespace: %v", err)
-	}
+	require.NoError(t, err, "ParseSigned rejected compact serialization with outer whitespace")
 
 	payload, err := parsed.Verify(key)
-	if err != nil {
-		t.Fatalf("Verify: %v", err)
-	}
+	require.NoError(t, err, "Verify")
 
-	if string(payload) != "payload" {
-		t.Errorf("payload = %q, want %q", payload, "payload")
-	}
+	assert.Equal(t, "payload", string(payload), "payload = %q, want %q", payload, "payload")
 
 	detached, err := obj.DetachedCompactSerialize()
-	if err != nil {
-		t.Fatalf("DetachedCompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "DetachedCompactSerialize")
 
-	if _, err = ParseDetached("\n  "+detached+"  \n", []byte("payload"), []SignatureAlgorithm{HS256}); err != nil {
-		t.Errorf("ParseDetached rejected compact serialization with outer whitespace: %v", err)
-	}
+	_, err = ParseDetached("\n  "+detached+"  \n", []byte("payload"), []SignatureAlgorithm{HS256})
+	assert.NoError(t, err, "ParseDetached rejected compact serialization with outer whitespace")
 }
 
 // An embedded OKP JWK whose "x" resolves to the Ed25519 identity point accepts a signature which anyone can construct
@@ -1071,9 +911,7 @@ func TestEmbeddedEd25519IdentityPointCannotForgeSignature(t *testing.T) {
 			}
 
 			payload, err := object.Verify(object.Signatures[0].Header.JSONWebKey)
-			if err == nil {
-				t.Fatalf("forged signature was accepted, returning payload %q", payload)
-			}
+			require.Error(t, err, "forged signature was accepted, returning payload %q", payload)
 		})
 	}
 }
@@ -1098,9 +936,7 @@ func TestParseSignedJSONSurfacesPerSignatureHeader(t *testing.T) {
 		payload, protected, signature)
 
 	obj, err := ParseSignedJSON(serialized, []SignatureAlgorithm{HS256})
-	if err != nil {
-		t.Fatalf("ParseSignedJSON: %v", err)
-	}
+	require.NoError(t, err, "ParseSignedJSON")
 
 	if got := obj.Signatures[0].Header.KeyID; got != "k1" {
 		t.Errorf("Header.KeyID = %q, want %q", got, "k1")
@@ -1115,9 +951,8 @@ func TestParseSignedJSONSurfacesPerSignatureHeader(t *testing.T) {
 		t.Errorf("Protected.KeyID = %q, want empty", got)
 	}
 
-	if _, err = obj.Verify(key); err != nil {
-		t.Errorf("Verify: %v", err)
-	}
+	_, err = obj.Verify(key)
+	assert.NoError(t, err, "Verify")
 }
 
 // RFC 7515 Section 5.2 step 4 requires a validator to reject a JOSE Header
@@ -1167,20 +1002,15 @@ func TestParseSignedRejectsDuplicateHeaderParameters(t *testing.T) {
 			obj, err := ParseSignedJSON(tc.serialized, []SignatureAlgorithm{HS256})
 
 			if tc.wantErr {
-				if !errors.Is(err, ErrDuplicateHeaderParameter) {
-					t.Fatalf("got %v, want %v", err, ErrDuplicateHeaderParameter)
-				}
+				require.ErrorIs(t, err, ErrDuplicateHeaderParameter, "got %v, want %v", err, ErrDuplicateHeaderParameter)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("ParseSignedJSON: %v", err)
-			}
+			require.NoError(t, err, "ParseSignedJSON")
 
-			if _, err = obj.Verify(key); err != nil {
-				t.Errorf("Verify: %v", err)
-			}
+			_, err = obj.Verify(key)
+			assert.NoError(t, err, "Verify")
 		})
 	}
 }
@@ -1203,13 +1033,10 @@ func TestParseRejectsNonCanonicalBase64(t *testing.T) {
 	canonical := protected + "." + payload + "." + signature
 
 	obj, err := ParseSignedCompact(canonical, []SignatureAlgorithm{HS256})
-	if err != nil {
-		t.Fatalf("the canonical token must still parse: %v", err)
-	}
+	require.NoError(t, err, "the canonical token must still parse")
 
-	if _, err = obj.Verify(key); err != nil {
-		t.Fatalf("the canonical token must still verify: %v", err)
-	}
+	_, err = obj.Verify(key)
+	require.NoError(t, err, "the canonical token must still verify")
 
 	// Flip the unused trailing bits of a segment's final character. The octets it
 	// decodes to are unchanged, so without the check the variant verifies too.
@@ -1219,13 +1046,10 @@ func TestParseRejectsNonCanonicalBase64(t *testing.T) {
 	}
 
 	for name, variant := range variants {
-		if variant == canonical {
-			t.Fatalf("%s: the variant is identical to the canonical form", name)
-		}
+		require.NotEqual(t, canonical, variant, "%s: the variant is identical to the canonical form", name)
 
-		if _, err = ParseSignedCompact(variant, []SignatureAlgorithm{HS256}); err == nil {
-			t.Errorf("%s: a non-canonical encoding was accepted", name)
-		}
+		_, err = ParseSignedCompact(variant, []SignatureAlgorithm{HS256})
+		assert.Error(t, err, "%s: a non-canonical encoding was accepted", name)
 	}
 }
 
@@ -1237,9 +1061,7 @@ func flipUnusedBits(t *testing.T, s string) string {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 	unused := map[int]int{2: 4, 3: 2}[len(s)%4]
-	if unused == 0 {
-		t.Fatalf("a %d character segment has no unused bits to flip", len(s))
-	}
+	require.NotEqual(t, 0, unused, "a %d character segment has no unused bits to flip", len(s))
 
 	index := strings.IndexByte(alphabet, s[len(s)-1])
 	if index < 0 {
@@ -1277,9 +1099,7 @@ func TestParseRejectsB64WithoutCrit(t *testing.T) {
 				obj, err := parse()
 
 				if tc.wantErr {
-					if !errors.Is(err, ErrB64NotCritical) {
-						t.Errorf("%s: got %v, want %v", name, err, ErrB64NotCritical)
-					}
+					assert.ErrorIs(t, err, ErrB64NotCritical, "%s: got %v, want %v", name, err, ErrB64NotCritical)
 
 					continue
 				}
@@ -1292,9 +1112,8 @@ func TestParseRejectsB64WithoutCrit(t *testing.T) {
 
 				// The message is well formed, so it must still verify against the payload it carries.
 				if name == "detached" {
-					if err = obj.DetachedVerify(payload, key); err != nil {
-						t.Errorf("%s: DetachedVerify: %v", name, err)
-					}
+					err = obj.DetachedVerify(payload, key)
+					assert.NoError(t, err, "%s: DetachedVerify", name)
 
 					continue
 				}
@@ -1306,9 +1125,7 @@ func TestParseRejectsB64WithoutCrit(t *testing.T) {
 					continue
 				}
 
-				if !bytes.Equal(output, payload) {
-					t.Errorf("%s: payload = %q, want %q", name, output, payload)
-				}
+				assert.Equal(t, payload, output, "%s: payload = %q, want %q", name, output, payload)
 			}
 		})
 	}
@@ -1341,9 +1158,7 @@ func TestParseRejectsMalformedCritical(t *testing.T) {
 				obj, err := parse()
 
 				if tc.wantErr {
-					if !errors.Is(err, ErrInvalidCriticalHeader) {
-						t.Errorf("%s: got %v, want %v", name, err, ErrInvalidCriticalHeader)
-					}
+					assert.ErrorIs(t, err, ErrInvalidCriticalHeader, "%s: got %v, want %v", name, err, ErrInvalidCriticalHeader)
 
 					continue
 				}
@@ -1354,9 +1169,8 @@ func TestParseRejectsMalformedCritical(t *testing.T) {
 					continue
 				}
 
-				if err = obj.DetachedVerify(payload, key); err != nil {
-					t.Errorf("%s: DetachedVerify: %v", name, err)
-				}
+				err = obj.DetachedVerify(payload, key)
+				assert.NoError(t, err, "%s: DetachedVerify", name)
 			}
 		})
 	}
@@ -1433,9 +1247,7 @@ func TestSerializeParsedSignatureKeepsProtectedHeader(t *testing.T) {
 
 	reparse := func(t *testing.T, serialized string) *JSONWebSignature {
 		obj, err := ParseSigned(serialized, []SignatureAlgorithm{HS256})
-		if err != nil {
-			t.Fatalf("failed to reparse %s: %v", serialized, err)
-		}
+		require.NoError(t, err, "failed to reparse %s", serialized)
 
 		return obj
 	}
@@ -1446,7 +1258,7 @@ func TestSerializeParsedSignatureKeepsProtectedHeader(t *testing.T) {
 
 		serialized, err := reparse(t, token).CompactSerialize()
 		assert.NoError(t, err)
-		assert.Equal(t, serialized, token)
+		assert.Equal(t, token, serialized)
 
 		_, err = reparse(t, serialized).Verify(keys[0])
 		assert.NoError(t, err)
@@ -1474,7 +1286,7 @@ func TestSerializeParsedSignatureKeepsProtectedHeader(t *testing.T) {
 		for i, key := range keys {
 			index, _, _, err := reparse(t, serialized).VerifyMulti(key)
 			assert.NoError(t, err)
-			assert.Equal(t, index, i)
+			assert.Equal(t, i, index)
 		}
 	})
 }
@@ -1518,9 +1330,8 @@ func TestParseSignedRejectsMixedJSONSerialization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := parse("{" + tc.member + "," + general[1:]); err == nil {
-				t.Fatal("parsed a general serialization carrying a flattened member")
-			}
+			err := parse("{" + tc.member + "," + general[1:])
+			require.Error(t, err, "parsed a general serialization carrying a flattened member")
 		})
 	}
 
@@ -1540,17 +1351,11 @@ func TestParseSignedRejectsMixedJSONSerialization(t *testing.T) {
 
 func TestEmbeddedPrivateJWKRejected(t *testing.T) {
 	privateJWK, err := fromRsaPrivateKey(rsaTestKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	publicJWK, err := fromRsaPublicKey(&rsaTestKey.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	strayJWK, err := fromRsaPublicKey(&rsaTestKey.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	strayJWK.P, strayJWK.Q = privateJWK.P, privateJWK.Q
 
 	testCases := []struct {
@@ -1575,9 +1380,7 @@ func TestEmbeddedPrivateJWKRejected(t *testing.T) {
 			marshal := func(v any) []byte {
 				t.Helper()
 				b, err := json.Marshal(v)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				return b
 			}
 
@@ -1641,16 +1444,10 @@ func TestGeneralSerializationUnprotectedHeader(t *testing.T) {
 	for name, msg := range messages {
 		t.Run(name, func(t *testing.T) {
 			obj, err := ParseSigned(msg, []SignatureAlgorithm{RS256})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			sig := obj.Signatures[0]
-			if sig.Header.KeyID != "from-unprotected" {
-				t.Errorf("Header.KeyID = %q, want %q", sig.Header.KeyID, "from-unprotected")
-			}
-			if sig.Unprotected.KeyID != "from-unprotected" {
-				t.Errorf("Unprotected.KeyID = %q, want %q", sig.Unprotected.KeyID, "from-unprotected")
-			}
+			assert.Equal(t, "from-unprotected", sig.Header.KeyID, "Header.KeyID = %q, want %q", sig.Header.KeyID, "from-unprotected")
+			assert.Equal(t, "from-unprotected", sig.Unprotected.KeyID, "Unprotected.KeyID = %q, want %q", sig.Unprotected.KeyID, "from-unprotected")
 		})
 	}
 }
@@ -1671,9 +1468,7 @@ func TestUnexpectedAlgorithmCheckedBeforeHeaders(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseSigned(msg, []SignatureAlgorithm{RS256})
 			var errUnexpectedSigAlg *ErrUnexpectedSignatureAlgorithm
-			if !errors.As(err, &errUnexpectedSigAlg) {
-				t.Fatalf("expected ErrUnexpectedSignatureAlgorithm, got %v", err)
-			}
+			require.True(t, errors.As(err, &errUnexpectedSigAlg), "expected ErrUnexpectedSignatureAlgorithm, got %v", err)
 		})
 	}
 }
@@ -1719,9 +1514,7 @@ func TestParseSignedMaxSignatures(t *testing.T) {
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err, "unexpected error")
 			if len(obj.Signatures) != tc.signatures {
 				t.Errorf("got %d signatures, want %d", len(obj.Signatures), tc.signatures)
 			}
@@ -1747,9 +1540,8 @@ func TestParseSignedMaxSignaturesCountsSingleSignature(t *testing.T) {
 			}
 
 			MaxSignatures = 1
-			if _, err := parse(); err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
+			_, err := parse()
+			assert.NoError(t, err, "unexpected error")
 		})
 	}
 }

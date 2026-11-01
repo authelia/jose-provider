@@ -22,6 +22,9 @@ import (
 	"crypto/mldsa"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose"
 )
 
@@ -29,29 +32,19 @@ func TestNewMLDSASigningKey(t *testing.T) {
 	for _, alg := range []jose.SignatureAlgorithm{jose.ML_DSA_44, jose.ML_DSA_65, jose.ML_DSA_87} {
 		t.Run(string(alg), func(t *testing.T) {
 			pub, priv, err := NewSigningKey(alg, 0)
-			if err != nil {
-				t.Fatalf("NewSigningKey: %v", err)
-			}
+			require.NoError(t, err, "NewSigningKey")
 			if _, ok := pub.(*mldsa.PublicKey); !ok {
 				t.Errorf("public key is %T; want *mldsa.PublicKey", pub)
 			}
 			privKey, ok := priv.(*mldsa.PrivateKey)
-			if !ok {
-				t.Fatalf("private key is %T; want *mldsa.PrivateKey", priv)
-			}
+			require.True(t, ok, "private key is %T; want *mldsa.PrivateKey", priv)
 
 			// jose-util generate relies on all three of these.
 			jwk := jose.JSONWebKey{Key: privKey, Algorithm: string(alg), Use: "sig"}
-			if !jwk.Valid() {
-				t.Error("generated private JWK is not valid")
-			}
-			if jwk.IsPublic() {
-				t.Error("generated private JWK reported as public")
-			}
+			assert.True(t, jwk.Valid(), "generated private JWK is not valid")
+			assert.False(t, jwk.IsPublic(), "generated private JWK reported as public")
 			pubJWK := jwk.Public()
-			if !pubJWK.IsPublic() {
-				t.Error("Public() did not yield a public JWK")
-			}
+			assert.True(t, pubJWK.IsPublic(), "Public() did not yield a public JWK")
 		})
 	}
 }
@@ -59,15 +52,13 @@ func TestNewMLDSASigningKey(t *testing.T) {
 func TestNewMLDSASigningKeyRejectsKeySize(t *testing.T) {
 	for _, alg := range []jose.SignatureAlgorithm{jose.ML_DSA_44, jose.ML_DSA_65, jose.ML_DSA_87} {
 		t.Run(string(alg), func(t *testing.T) {
-			if _, _, err := NewSigningKey(alg, 4096); err == nil {
-				t.Error("NewSigningKey accepted a key size for an ML-DSA algorithm")
-			}
+			_, _, err := NewSigningKey(alg, 4096)
+			assert.Error(t, err, "NewSigningKey accepted a key size for an ML-DSA algorithm")
 		})
 	}
 }
 
 func TestNewSigningKeyStillRejectsUnknown(t *testing.T) {
-	if _, _, err := NewSigningKey(jose.SignatureAlgorithm("bogus"), 0); err == nil {
-		t.Error("NewSigningKey accepted an unknown algorithm")
-	}
+	_, _, err := NewSigningKey(jose.SignatureAlgorithm("bogus"), 0)
+	assert.Error(t, err, "NewSigningKey accepted an unknown algorithm")
 }
