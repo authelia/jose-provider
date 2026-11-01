@@ -25,7 +25,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -79,12 +78,8 @@ func TestIntegerAndFloatsNormalize(t *testing.T) {
 	nf, err := (normalized["float"].(json.Number)).Float64()
 	require.NoError(t, err)
 
-	if ni != c.Int {
-		t.Errorf("normalize failed to preserve int64 (got %v, wanted %v, type %s)", normalized["int"], c.Int, reflect.TypeOf(normalized["int"]))
-	}
-	if nf != c.Float {
-		t.Errorf("normalize failed to preserve float64 (got %v, wanted %v, type %s)", normalized["float"], c.Float, reflect.TypeOf(normalized["float"]))
-	}
+	assert.Equal(t, c.Int, ni)
+	assert.Equal(t, c.Float, nf)
 }
 
 func TestBuilderCustomClaimsNonPointer(t *testing.T) {
@@ -199,9 +194,7 @@ func TestBuilderSignedAndEncrypted(t *testing.T) {
 					"enc":                  "A128CBC-HS256",
 				},
 			}}
-			if !reflect.DeepEqual(jwe.Headers, expected) {
-				t.Errorf("headers from ParseSignedAndEncrypted() = %v, want %v", jwe.Headers, expected)
-			}
+			assert.Equal(t, expected, jwe.Headers)
 			if jws, err := jwe.Decrypt(encryptionKey); assert.NoError(t, err) {
 				expected := []jose.Header{{
 					Algorithm: string(jose.RS256),
@@ -209,9 +202,7 @@ func TestBuilderSignedAndEncrypted(t *testing.T) {
 						jose.HeaderType: "JWT",
 					},
 				}}
-				if !reflect.DeepEqual(jws.Headers, expected) {
-					t.Errorf("headers from Decrypt() = %v, want %v", jws.Headers, expected)
-				}
+				assert.Equal(t, expected, jws.Headers)
 				out := &testClaims{}
 				assert.NoError(t, jws.Claims(&testPrivRSAKey1.PublicKey, out))
 				assert.Equal(t, testClaims{"foo"}, *out)
@@ -268,20 +259,17 @@ func TestBuilderHeadersSigner(t *testing.T) {
 		}
 
 		signer, err := jose.NewMultiSigner(signingKeys, nil)
-		if err != nil {
-			t.Errorf("case %d: NewMultiSigner(): %v", i, err)
+		if !assert.NoError(t, err, "case %d: NewMultiSigner()", i) {
 			continue
 		}
 
 		var token string
 		token, err = Signed(signer).Claims(tc.Claims).Serialize()
-		if err != nil {
-			t.Errorf("case %d: failed to create token: %v", i, err)
+		if !assert.NoError(t, err, "case %d: failed to create token", i) {
 			continue
 		}
 		jws, err := jose.ParseSignedCompact(token, []jose.SignatureAlgorithm{jose.RS256})
-		if err != nil {
-			t.Errorf("case %d: parse signed: %v", i, err)
+		if !assert.NoError(t, err, "case %d: parse signed", i) {
 			continue
 		}
 		gotKeyIDs := make([]string, len(jws.Signatures))
@@ -327,9 +315,7 @@ func TestBuilderHeadersEncrypter(t *testing.T) {
 			Algorithm: string(jose.RSA1_5),
 			KeyID:     wantKeyID,
 		}
-		if !reflect.DeepEqual(jwe.Header, expected) {
-			t.Errorf("header from ParseEncrypted() = %v, want %v", jwe.Header, expected)
-		}
+		assert.Equal(t, expected, jwe.Header)
 	}
 }
 

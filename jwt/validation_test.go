@@ -198,9 +198,8 @@ func TestExpiryIsExclusive(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := c.ValidateWithLeeway(Expected{Time: tc.now}, tc.leeway); err != tc.wantErr {
-				t.Errorf("ValidateWithLeeway: got %v, want %v", err, tc.wantErr)
-			}
+			err := c.ValidateWithLeeway(Expected{Time: tc.now}, tc.leeway)
+			assert.Equal(t, tc.wantErr, err, "ValidateWithLeeway: got %v, want %v", err, tc.wantErr)
 		})
 	}
 }

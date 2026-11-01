@@ -30,7 +30,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash"
 	"math/big"
@@ -85,7 +84,7 @@ func TestCompactParseJWE(t *testing.T) {
 
 	for _, msg := range failures {
 		_, err = ParseEncrypted(msg, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
-		assert.Error(t, err, "%v %v", "Able to parse invalid message", msg)
+		assert.Error(t, err, "Able to parse invalid message msg=%v", msg)
 	}
 }
 
@@ -158,7 +157,7 @@ func TestMissingInvalidHeaders(t *testing.T) {
 	}
 
 	_, err = obj.Decrypt(nil)
-	assert.ErrorIs(t, err, ErrUnsupportedKeyType, "should detect invalid key")
+	assert.Same(t, ErrUnsupportedKeyType, err, "should detect invalid key")
 
 	err = obj.unprotected.set(headerCritical, []string{"1", "2"})
 	require.NoError(t, err)
@@ -176,7 +175,7 @@ func TestMissingInvalidHeaders(t *testing.T) {
 
 	_, err = obj.Decrypt(rsaTestKey)
 	if err == nil || err == ErrCryptoFailure {
-		t.Error("should detect missing enc header")
+		assert.Fail(t, "should detect missing enc header")
 	}
 }
 
@@ -196,11 +195,7 @@ func TestRejectUnprotectedJWENonce(t *testing.T) {
 	"tag": "QUJD"
 	}`
 	_, err := ParseEncrypted(input, []KeyAlgorithm{KeyAlgorithm("XYZ")}, []ContentEncryption{ContentEncryption("XYZ")})
-	if err == nil {
-		t.Error("JWE with an unprotected nonce parsed as valid.")
-	} else if err.Error() != "go-jose/go-jose: Nonce parameter included in unprotected header" {
-		t.Errorf("Improper error for unprotected nonce: %v", err)
-	}
+	assert.EqualError(t, err, "go-jose/go-jose: Nonce parameter included in unprotected header")
 
 	input = `{
 		"unprotected":  {
@@ -214,11 +209,7 @@ func TestRejectUnprotectedJWENonce(t *testing.T) {
 		"tag": "QUJD"
 	}`
 	_, err = ParseEncrypted(input, []KeyAlgorithm{KeyAlgorithm("XYZ")}, []ContentEncryption{ContentEncryption("XYZ")})
-	if err == nil {
-		t.Error("JWE with an unprotected nonce parsed as valid.")
-	} else if err.Error() != "go-jose/go-jose: Nonce parameter included in unprotected header" {
-		t.Errorf("Improper error for unprotected nonce: %v", err)
-	}
+	assert.EqualError(t, err, "go-jose/go-jose: Nonce parameter included in unprotected header")
 
 	// Full JSON
 	input = `{
@@ -233,11 +224,7 @@ func TestRejectUnprotectedJWENonce(t *testing.T) {
 		}]
 	}`
 	_, err = ParseEncrypted(input, []KeyAlgorithm{KeyAlgorithm("XYZ")}, []ContentEncryption{ContentEncryption("XYZ")})
-	if err == nil {
-		t.Error("JWS with an unprotected nonce parsed as valid.")
-	} else if err.Error() != "go-jose/go-jose: Nonce parameter included in unprotected header" {
-		t.Errorf("Improper error for unprotected nonce: %v", err)
-	}
+	assert.EqualError(t, err, "go-jose/go-jose: Nonce parameter included in unprotected header")
 }
 
 func TestCompactSerialize(t *testing.T) {
@@ -315,7 +302,7 @@ func TestVectorsJWE(t *testing.T) {
 
 	serialized, err := object.CompactSerialize()
 	require.NoError(t, err)
-	assert.Equal(t, expectedCompact, serialized, "%v %v %v", "Compact serialization is not what we expected", serialized, expectedCompact)
+	assert.Equal(t, expectedCompact, serialized, "Compact serialization is not what we expected serialized=%v expectedCompact=%v", serialized, expectedCompact)
 
 	serialized = object.FullSerialize()
 	assert.Equal(t, expectedFull, serialized, "JSON serialization is not what we expected")
@@ -383,7 +370,7 @@ func TestDecryptMultiReadsEncFromTheRecipientHeader(t *testing.T) {
 
 			index, _, plaintext, err := obj.DecryptMulti(key)
 			if err != nil || index != 0 || string(plaintext) != "payload" {
-				t.Fatalf("DecryptMulti: got %d, %q, %v", index, plaintext, err)
+				require.Failf(t, "unexpected result", "DecryptMulti: got %d, %q, %v", index, plaintext, err)
 			}
 		})
 	}
@@ -490,11 +477,11 @@ func TestVectorsJWECorrupt(t *testing.T) {
 
 	msg, _ := ParseEncrypted(corruptCiphertext, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
 	_, err := msg.Decrypt(priv)
-	assert.ErrorIs(t, err, ErrCryptoFailure, "Decrypt(): got %q, want %q", err, ErrCryptoFailure)
+	assert.Same(t, ErrCryptoFailure, err, "Decrypt(): got %q, want %q", err, ErrCryptoFailure)
 
 	msg, _ = ParseEncrypted(corruptAuthtag, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
 	_, err = msg.Decrypt(priv)
-	assert.ErrorIs(t, err, ErrCryptoFailure, "Decrypt(): got %q, want %q", err, ErrCryptoFailure)
+	assert.Same(t, ErrCryptoFailure, err, "Decrypt(): got %q, want %q", err, ErrCryptoFailure)
 }
 
 // Test vectors generated with nimbus-jose-jwt
@@ -564,16 +551,14 @@ func TestSampleNimbusJWEMessagesRSA(t *testing.T) {
 				A192CBC_HS384,
 				A192GCM,
 			})
-		if err != nil {
-			t.Error("unable to parse message", msg, err)
+		if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 			continue
 		}
 		plaintext, err := obj.Decrypt(rsaPrivateKey)
-		if err != nil {
-			t.Error("unable to decrypt message", msg, err)
+		if !assert.NoError(t, err, "unable to decrypt message msg=%v", msg) {
 			continue
 		}
-		assert.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "%v %v", "plaintext is not what we expected for msg", msg)
+		assert.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "plaintext is not what we expected for msg msg=%v", msg)
 	}
 }
 
@@ -649,16 +634,14 @@ func TestSampleNimbusJWEMessagesAESKW(t *testing.T) {
 					A256CBC_HS512,
 					A256GCM,
 				})
-			if err != nil {
-				t.Error("unable to parse message", msg, err)
+			if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 				continue
 			}
 			plaintext, err := obj.Decrypt(aesTestKeys[i])
-			if err != nil {
-				t.Error("unable to decrypt message", msg, err)
+			if !assert.NoError(t, err, "unable to decrypt message msg=%v", msg) {
 				continue
 			}
-			assert.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "%v %v", "plaintext is not what we expected for msg", msg)
+			assert.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "plaintext is not what we expected for msg msg=%v", msg)
 		}
 	}
 }
@@ -701,16 +684,14 @@ func TestSampleJose4jJWEMessagesECDH(t *testing.T) {
 				A192CBC_HS384,
 				A256CBC_HS512,
 			})
-		if err != nil {
-			t.Error("unable to parse message", msg, err)
+		if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 			continue
 		}
 		plaintext, err := obj.Decrypt(ecTestKey)
-		if err != nil {
-			t.Error("unable to decrypt message", msg, err)
+		if !assert.NoError(t, err, "unable to decrypt message msg=%v", msg) {
 			continue
 		}
-		assert.Equal(t, "Lorem ipsum dolor sit amet.", string(plaintext), "%v %v", "plaintext is not what we expected for msg", msg)
+		assert.Equal(t, "Lorem ipsum dolor sit amet.", string(plaintext), "plaintext is not what we expected for msg msg=%v", msg)
 	}
 }
 
@@ -733,13 +714,13 @@ func TestPrecomputedECDHMessagesFromJose4j(t *testing.T) {
 	for i, vector := range data {
 		var jwk JSONWebKey
 		err := jwk.UnmarshalJSON([]byte(vector.key))
-		require.NoError(t, err, "%v", i)
+		require.NoError(t, err, "i=%v", i)
 
 		parsed, err := ParseEncrypted(vector.message, []KeyAlgorithm{ECDH_ES}, []ContentEncryption{A192CBC_HS384, A256CBC_HS512})
-		require.NoError(t, err, "%v", i)
+		require.NoError(t, err, "i=%v", i)
 
 		_, err = parsed.Decrypt(jwk)
-		require.NoError(t, err, "%v", i)
+		require.NoError(t, err, "i=%v", i)
 	}
 }
 
@@ -767,16 +748,14 @@ func TestSampleAESCBCHMACMessagesFromNodeJose(t *testing.T) {
 
 	for _, sample := range samples {
 		obj, err := ParseEncrypted(sample.ciphertext, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128CBC_HS256, A192CBC_HS384, A256CBC_HS512})
-		if err != nil {
-			t.Error("unable to parse message", sample.ciphertext, err)
+		if !assert.NoError(t, err, "unable to parse message sample.ciphertext=%v", sample.ciphertext) {
 			continue
 		}
 		plaintext, err := obj.Decrypt(sample.key)
-		if err != nil {
-			t.Error("unable to decrypt message", sample.ciphertext, err)
+		if !assert.NoError(t, err, "unable to decrypt message sample.ciphertext=%v", sample.ciphertext) {
 			continue
 		}
-		assert.Equal(t, "Hello World", string(plaintext), "%v %v %v", "plaintext is not what we expected for msg", sample.ciphertext, string(plaintext))
+		assert.Equal(t, "Hello World", string(plaintext), "plaintext is not what we expected for msg sample.ciphertext=%v string(plaintext)=%v", sample.ciphertext, string(plaintext))
 	}
 }
 
@@ -826,31 +805,19 @@ func TestEmptyEncryptedKey(t *testing.T) {
 	// a more useful error message would be okay.
 	want := "go-jose/go-jose: error in cryptographic primitive"
 	_, err = item.Decrypt(secret)
-	if err == nil {
-		t.Errorf("Decrypt() after ParseEncrypted() with empty encrypted key should fail")
-	} else if err.Error() != want {
-		t.Errorf("Decrypt() after ParseEncrypted() with empty encrypted key: got %q, want %q", err, want)
-	}
+	assert.EqualError(t, err, want)
 
 	item, err = ParseEncryptedCompact(serializedCompact, acceptedAlgs, acceptedContentAlgs)
 	require.NoError(t, err, "ParseEncryptedCompact(%q)", serializedCompact)
 
 	_, err = item.Decrypt(secret)
-	if err == nil {
-		t.Errorf("Decrypt() after ParseEncryptedCompact() with empty encrypted key should fail")
-	} else if err.Error() != want {
-		t.Errorf("Decrypt() after ParseEncryptedCompact() with empty encrypted key: got %q, want %q", err, want)
-	}
+	assert.EqualError(t, err, want)
 
 	item, err = ParseEncryptedJSON(serializedJSON, acceptedAlgs, acceptedContentAlgs)
 	require.NoError(t, err, "ParseEncryptedJSON(%q)", serializedJSON)
 
 	_, err = item.Decrypt(secret)
-	if err == nil {
-		t.Errorf("Decrypt() after ParseEncryptedJSON() with empty encrypted key should fail")
-	} else if err.Error() != want {
-		t.Errorf("Decrypt() after ParseEncryptedJSON() with empty encrypted key: got %q, want %q", err, want)
-	}
+	assert.EqualError(t, err, want)
 }
 
 func BenchmarkParseEncryptedCompat(b *testing.B) {
@@ -946,7 +913,7 @@ func TestDecryptEmptyCiphertextWithValidTag(t *testing.T) {
 
 			plaintext, err := obj.Decrypt(rsaTestKey)
 			require.Error(t, err, "Decrypt accepted an empty ciphertext, returned %q, want an error", plaintext)
-			assert.ErrorIs(t, err, ErrCryptoFailure, "Decrypt returned %v, want %v", err, ErrCryptoFailure)
+			assert.Same(t, ErrCryptoFailure, err, "Decrypt returned %v, want %v", err, ErrCryptoFailure)
 		})
 	}
 }
@@ -975,13 +942,11 @@ func TestJWEFullSerializeOmitsTopLevelEncryptedKey(t *testing.T) {
 	err = json.Unmarshal([]byte(obj.FullSerialize()), &members)
 	require.NoError(t, err, "unmarshal")
 
-	if _, ok := members["encrypted_key"]; ok {
-		t.Error("general serialization carries a top level encrypted_key")
-	}
+	_, ok := members["encrypted_key"]
+	assert.False(t, ok, "general serialization carries a top level encrypted_key")
 
-	if _, ok := members["recipients"]; !ok {
-		t.Error("general serialization is missing the recipients array")
-	}
+	_, ok = members["recipients"]
+	assert.True(t, ok, "general serialization is missing the recipients array")
 
 	// Both recipients must still be able to decrypt.
 	for i, key := range []*ecdsa.PrivateKey{first, second} {
@@ -989,8 +954,7 @@ func TestJWEFullSerializeOmitsTopLevelEncryptedKey(t *testing.T) {
 		require.NoError(t, err, "recipient %d: parse", i)
 
 		_, _, plaintext, err := parsed.DecryptMulti(key)
-		if err != nil {
-			t.Errorf("recipient %d: DecryptMulti: %v", i, err)
+		if !assert.NoError(t, err, "recipient %d: DecryptMulti", i) {
 			continue
 		}
 
@@ -1058,9 +1022,8 @@ func TestEncryptRejectsHeadersCollidingWithRecipients(t *testing.T) {
 	colliding, err := NewMultiEncrypter(A128GCM, recipients, (&EncrypterOptions{}).WithHeader("kid", "shared"))
 	require.NoError(t, err)
 
-	if _, err = colliding.Encrypt([]byte("plaintext")); !errors.Is(err, ErrDuplicateHeaderParameter) {
-		t.Errorf("Encrypt with a colliding kid returned %v, want %v", err, ErrDuplicateHeaderParameter)
-	}
+	_, err = colliding.Encrypt([]byte("plaintext"))
+	assert.ErrorIs(t, err, ErrDuplicateHeaderParameter, "Encrypt with a colliding kid returned %v, want %v", err, ErrDuplicateHeaderParameter)
 
 	// A non-colliding extra header must still work, and round-trip.
 	fine, err := NewMultiEncrypter(A128GCM, recipients, (&EncrypterOptions{}).WithContentType("JWT"))
@@ -1073,7 +1036,7 @@ func TestEncryptRejectsHeadersCollidingWithRecipients(t *testing.T) {
 	require.NoError(t, err, "ParseEncryptedJSON")
 
 	if _, _, plaintext, err := parsed.DecryptMulti(first); err != nil || string(plaintext) != "plaintext" {
-		t.Errorf("DecryptMulti = %q, %v", plaintext, err)
+		assert.Failf(t, "unexpected result", "DecryptMulti = %q, %v", plaintext, err)
 	}
 }
 
@@ -1229,16 +1192,15 @@ func TestUnexpectedAlgorithmCheckedBeforeHeadersJWE(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseEncrypted(msg, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
 			if err == nil || !regexp.MustCompile(`unexpected key algorithm`).MatchString(err.Error()) {
-				t.Fatalf("expected unexpected key algorithm error, got %v", err)
+				require.Failf(t, "unexpected result", "expected unexpected key algorithm error, got %v", err)
 			}
 		})
 	}
 }
 
 func TestFullSerializeNoRecipients(t *testing.T) {
-	if out := (JSONWebEncryption{}).FullSerialize(); out != "" {
-		t.Errorf("expected empty string, got %q", out)
-	}
+	out := (JSONWebEncryption{}).FullSerialize()
+	assert.Equal(t, "", out, "expected empty string, got %q", out)
 }
 
 func TestParseEncryptedMaxRecipients(t *testing.T) {
@@ -1272,15 +1234,11 @@ func TestParseEncryptedMaxRecipients(t *testing.T) {
 			}
 			obj, err := ParseEncrypted(makeJWE(tc.recipients), []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
 			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "too many recipients") {
-					t.Fatalf("expected too many recipients error, got %v", err)
-				}
+				require.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
 				return
 			}
 			require.NoError(t, err, "unexpected error")
-			if len(obj.recipients) != tc.recipients {
-				t.Errorf("got %d recipients, want %d", len(obj.recipients), tc.recipients)
-			}
+			assert.Len(t, obj.recipients, tc.recipients)
 		})
 	}
 }
@@ -1301,12 +1259,11 @@ func TestParseEncryptedMaxRecipientsCountsSingleRecipient(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			MaxRecipients = 0
-			if _, err := parse(); err == nil || !strings.Contains(err.Error(), "too many recipients") {
-				t.Errorf("expected too many recipients error, got %v", err)
-			}
+			_, err := parse()
+			assert.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
 
 			MaxRecipients = 1
-			_, err := parse()
+			_, err = parse()
 			assert.NoError(t, err, "unexpected error")
 		})
 	}

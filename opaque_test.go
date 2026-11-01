@@ -164,13 +164,13 @@ func TestRoundtripsJWSOpaque(t *testing.T) {
 			vw := makeOpaqueVerifier(t, []any{verificationKey}, alg)
 
 			err := RoundtripJWS(alg, serializer, corrupter, sw, verificationKey, "test_nonce")
-			assert.NoError(t, err, "%v %v", alg, i)
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			err = RoundtripJWS(alg, serializer, corrupter, signingKey, vw, "test_nonce")
-			assert.NoError(t, err, "%v %v", alg, i)
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			err = RoundtripJWS(alg, serializer, corrupter, sw, vw, "test_nonce")
-			assert.NoError(t, err, "%v %v", alg, i)
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 		}
 	}
 }
@@ -209,7 +209,7 @@ func TestOpaqueSignerRefusesAPublicKeyTheVerifierRejects(t *testing.T) {
 			require.Error(t, err, "NewSigner accepted a public key the verifier rejects")
 
 			if tc.err != nil && !errors.Is(err, tc.err) {
-				t.Errorf("NewSigner: got %v, want %v", err, tc.err)
+				assert.Failf(t, "unexpected result", "NewSigner: got %v, want %v", err, tc.err)
 			}
 		})
 	}
@@ -226,15 +226,13 @@ func TestOpaqueSignerRefusesARotatedPublicKeyTheVerifierRejects(t *testing.T) {
 
 	sw.pk = &JSONWebKey{Key: &smallRSA.PublicKey}
 
-	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrInvalidKeySize) {
-		t.Errorf("Sign: got %v, want %v", err, ErrInvalidKeySize)
-	}
+	_, err = signer.Sign([]byte("payload"))
+	assert.ErrorIs(t, err, ErrInvalidKeySize, "Sign: got %v, want %v", err, ErrInvalidKeySize)
 
 	sw.pk = &JSONWebKey{Key: ed25519PublicKey}
 
-	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrUnsupportedAlgorithm) {
-		t.Errorf("Sign: got %v, want %v", err, ErrUnsupportedAlgorithm)
-	}
+	_, err = signer.Sign([]byte("payload"))
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "Sign: got %v, want %v", err, ErrUnsupportedAlgorithm)
 }
 
 func makeOpaqueSigner(t *testing.T, signingKey any, alg SignatureAlgorithm) *signWrapper {
@@ -273,16 +271,16 @@ func TestRoundtripsJWEOpaque(t *testing.T) {
 				kd := makeOpaqueKeyDecrypter(t, rsaTestKey, alg)
 
 				encrypter, err := NewEncrypter(enc, Recipient{Algorithm: alg, Key: ke}, nil)
-				require.NoError(t, err, "%v %v %v", alg, enc, i)
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
 
 				plaintext := []byte("foo bar baz")
 				jwe, err := encrypter.Encrypt(plaintext)
-				require.NoError(t, err, "%v %v %v", alg, enc, i)
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
 
 				jwe = jweSerialize(t, serializer, jwe, kd, alg, enc)
 
 				decrypted, err := jwe.Decrypt(kd)
-				require.NoError(t, err, "%v %v %v", alg, enc, i)
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
 				assert.Equal(t, plaintext, decrypted, "alg %s enc %s serializer %d: got %q, want %q", alg, enc, i, decrypted, plaintext)
 			}
 		}
@@ -291,7 +289,7 @@ func TestRoundtripsJWEOpaque(t *testing.T) {
 
 func makeOpaqueKeyEncrypter(t *testing.T, signingKey any, alg KeyAlgorithm, kid string) *keyEncryptWrapper {
 	rki, err := makeJWERecipient(alg, signingKey)
-	require.NoError(t, err, "%v", alg)
+	require.NoError(t, err, "alg=%v", alg)
 	return &keyEncryptWrapper{
 		wrapped: rki.keyEncrypter,
 		algs:    []KeyAlgorithm{alg},
@@ -330,14 +328,13 @@ func TestOpaqueSignerKeyRotation(t *testing.T) {
 				SigningKey{Algorithm: alg, Key: sw},
 				&SignerOptions{NonceSource: staticNonceSource("test_nonce")},
 			)
-			require.NoError(t, err, "%v %v", alg, i)
+			require.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			jws1, err := signer.Sign([]byte("foo bar baz"))
-			require.NoError(t, err, "%v %v", alg, i)
+			require.NoError(t, err, "alg=%v i=%v", alg, i)
 			jws1 = rtSerialize(t, serializer, jws1, vw, alg)
-			if kid := jws1.Signatures[0].Protected.KeyID; kid != "first" {
-				t.Errorf("expected kid %q but got %q", "first", kid)
-			}
+			kid := jws1.Signatures[0].Protected.KeyID
+			assert.Equal(t, "first", kid, "expected kid %q but got %q", "first", kid)
 
 			swNext := makeOpaqueSigner(t, sk2, alg)
 			swNext.pk.KeyID = "next"
@@ -345,11 +342,10 @@ func TestOpaqueSignerKeyRotation(t *testing.T) {
 			sw.pk = swNext.pk
 
 			jws2, err := signer.Sign([]byte("foo bar baz next"))
-			assert.NoError(t, err, "%v %v", alg, i)
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 			jws2 = rtSerialize(t, serializer, jws2, vw, alg)
-			if kid := jws2.Signatures[0].Protected.KeyID; kid != "next" {
-				t.Errorf("expected kid %q but got %q", "next", kid)
-			}
+			kid = jws2.Signatures[0].Protected.KeyID
+			assert.Equal(t, "next", kid, "expected kid %q but got %q", "next", kid)
 		}
 	}
 }

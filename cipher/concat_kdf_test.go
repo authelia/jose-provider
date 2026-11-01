@@ -17,7 +17,6 @@
 package josecipher
 
 import (
-	"bytes"
 	"crypto"
 	"testing"
 
@@ -48,19 +47,16 @@ func TestVectorConcatKDF(t *testing.T) {
 	out1 := make([]byte, 7)
 
 	read0, err := ckdf.Read(out0)
-	if err != nil {
-		t.Error("error when reading from concat kdf reader", err)
+	if !assert.NoError(t, err, "error when reading from concat kdf reader") {
 		return
 	}
 
 	read1, err := ckdf.Read(out1)
-	if err != nil {
-		t.Error("error when reading from concat kdf reader", err)
+	if !assert.NoError(t, err, "error when reading from concat kdf reader") {
 		return
 	}
 
-	if read0+read1 != len(out0)+len(out1) {
-		t.Error("did not receive enough bytes from concat kdf reader")
+	if !assert.Equal(t, len(out0)+len(out1), read0+read1, "did not receive enough bytes from concat kdf reader") {
 		return
 	}
 
@@ -68,8 +64,7 @@ func TestVectorConcatKDF(t *testing.T) {
 	out = append(out, out0...)
 	out = append(out, out1...)
 
-	if !bytes.Equal(out, expected) {
-		t.Error("did not receive expected output from concat kdf reader")
+	if !assert.Equal(t, expected, out, "did not receive expected output from concat kdf reader") {
 		return
 	}
 }

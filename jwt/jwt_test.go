@@ -21,7 +21,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"errors"
 	"strings"
 	"testing"
 
@@ -276,24 +275,21 @@ func TestClaimsRejectsAPayloadWhichIsNotAnObject(t *testing.T) {
 
 			var dest any
 
-			if err := tok.Claims(key, &claims); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("Claims(&Claims{}): got %v, want %v", err, ErrInvalidClaims)
-			}
+			err := tok.Claims(key, &claims)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "Claims(&Claims{}): got %v, want %v", err, ErrInvalidClaims)
 
-			if err := tok.Claims(key, &dest); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("Claims(&any): got %v, want %v", err, ErrInvalidClaims)
-			}
+			err = tok.Claims(key, &dest)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "Claims(&any): got %v, want %v", err, ErrInvalidClaims)
 
-			if err := tok.UnsafeClaimsWithoutVerification(&claims); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("UnsafeClaimsWithoutVerification: got %v, want %v", err, ErrInvalidClaims)
-			}
+			err = tok.UnsafeClaimsWithoutVerification(&claims)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "UnsafeClaimsWithoutVerification: got %v, want %v", err, ErrInvalidClaims)
 		})
 	}
 
 	var claims Claims
 
 	if err := parse(t, ` {"iss":"issuer"} `).Claims(key, &claims); err != nil || claims.Issuer != "issuer" {
-		t.Errorf("Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
+		assert.Failf(t, "unexpected result", "Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
 	}
 }
 
@@ -342,7 +338,7 @@ func TestParseSignedAndEncryptedAcceptsAsymmetricKeyAlgorithms(t *testing.T) {
 			var claims Claims
 
 			if err = inner.Claims(sigKey, &claims); err != nil || claims.Issuer != "issuer" {
-				t.Fatalf("Claims: got %v and issuer %q", err, claims.Issuer)
+				require.Failf(t, "unexpected result", "Claims: got %v and issuer %q", err, claims.Issuer)
 			}
 
 			_, err = ParseEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM})
@@ -364,9 +360,8 @@ func TestParseSignedRejectsUnencodedPayload(t *testing.T) {
 	token, err := obj.CompactSerialize()
 	require.NoError(t, err)
 
-	if _, err = ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256}); !errors.Is(err, ErrUnencodedPayload) {
-		t.Errorf("ParseSigned: got %v, want %v", err, ErrUnencodedPayload)
-	}
+	_, err = ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256})
+	assert.ErrorIs(t, err, ErrUnencodedPayload, "ParseSigned: got %v, want %v", err, ErrUnencodedPayload)
 }
 
 func BenchmarkDecodeSignedToken(b *testing.B) {
@@ -411,4 +406,56 @@ func TestValidateKeyEncryptionAlgorithm(t *testing.T) {
 		err := validateKeyEncryptionAlgorithm([]jose.KeyAlgorithm{alg})
 		assert.NoError(t, err, "expected success for %s, got", alg)
 	}
+}
+
+func TestHMACSignedTokenRejectsInvalidSignature(t *testing.T) {
+	key := []byte(strings.Repeat("k", 32))
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, nil)
+	require.NoError(t, err)
+
+	token, err := Signed(signer).Claims(Claims{Subject: "subject"}).Serialize()
+	require.NoError(t, err)
+
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+
+	// Flip a bit of the first signature character, which carries no unused bits, so the encoding stays canonical.
+	flipped := []byte(parts[2])
+	if flipped[0] == 'A' {
+		flipped[0] = 'B'
+	} else {
+		flipped[0] = 'A'
+	}
+
+	testCases := []struct {
+		name  string
+		token string
+		key   []byte
+	}{
+		{"WrongKey", token, []byte(strings.Repeat("x", 32))},
+		{"TamperedSignature", parts[0] + "." + parts[1] + "." + string(flipped), key},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := ParseSigned(tc.token, []jose.SignatureAlgorithm{jose.HS256})
+			require.NoError(t, err)
+
+			var claims Claims
+
+			assert.Error(t, parsed.Claims(tc.key, &claims))
+			assert.Empty(t, claims.Subject)
+		})
+	}
+
+	t.Run("ValidSignature", func(t *testing.T) {
+		parsed, err := ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256})
+		require.NoError(t, err)
+
+		var claims Claims
+
+		require.NoError(t, parsed.Claims(key, &claims))
+		assert.Equal(t, "subject", claims.Subject)
+	})
 }

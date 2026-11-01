@@ -27,7 +27,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -116,9 +115,8 @@ func TestEncryptRejectsExtraHeadersTheOperationDetermines(t *testing.T) {
 				return
 			}
 
-			if _, err = encrypter.Encrypt([]byte("payload")); !errors.Is(err, ErrReservedHeaderParameter) {
-				t.Errorf("Encrypt: got %v, want %v", err, ErrReservedHeaderParameter)
-			}
+			_, err = encrypter.Encrypt([]byte("payload"))
+			assert.ErrorIs(t, err, ErrReservedHeaderParameter, "Encrypt: got %v, want %v", err, ErrReservedHeaderParameter)
 		})
 	}
 
@@ -134,9 +132,7 @@ func TestEncryptRejectsExtraHeadersTheOperationDetermines(t *testing.T) {
 	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 	require.NoError(t, err)
 
-	if parsed.Header.KeyID != "caller" {
-		t.Errorf("kid = %q, want %q", parsed.Header.KeyID, "caller")
-	}
+	assert.Equal(t, "caller", parsed.Header.KeyID)
 }
 
 func TestEncryptRejectsExtraHeadersTheRecipientRejects(t *testing.T) {
@@ -419,12 +415,8 @@ func TestEncrypterWithJWKAndKeyIDByReference(t *testing.T) {
 	parsed1, _ := ParseEncrypted(serialized1, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 	parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 
-	if parsed1.Header.KeyID != "test-id" {
-		t.Errorf("expected message to have key id from JWK, but found '%s' instead", parsed1.Header.KeyID)
-	}
-	if parsed2.Header.KeyID != "test-id" {
-		t.Errorf("expected message to have key id from JWK, but found '%s' instead", parsed2.Header.KeyID)
-	}
+	assert.Equal(t, "test-id", parsed1.Header.KeyID)
+	assert.Equal(t, "test-id", parsed2.Header.KeyID)
 }
 
 func TestEncrypterWithJWKAndKeyIDByValue(t *testing.T) {
@@ -442,12 +434,8 @@ func TestEncrypterWithJWKAndKeyIDByValue(t *testing.T) {
 	parsed1, _ := ParseEncrypted(serialized1, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 	parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 
-	if parsed1.Header.KeyID != "test-id-value" {
-		t.Errorf("expected message to have key id from JWK by value, but found '%s' instead", parsed1.Header.KeyID)
-	}
-	if parsed2.Header.KeyID != "test-id-value" {
-		t.Errorf("expected message to have key id from JWK by value, but found '%s' instead", parsed2.Header.KeyID)
-	}
+	assert.Equal(t, "test-id-value", parsed1.Header.KeyID)
+	assert.Equal(t, "test-id-value", parsed2.Header.KeyID)
 }
 
 func TestEncrypterWithBrokenRand(t *testing.T) {
@@ -534,14 +522,14 @@ func TestMultiRecipientJWE(t *testing.T) {
 
 	require.Equal(t, 0, i, "recipient index should be 0 for RSA key")
 
-	require.Equal(t, input, output, "%v %v %v", "Decrypted output does not match input: ", output, input)
+	require.Equal(t, input, output, "Decrypted output does not match input: %v input=%v", output, input)
 
 	i, _, output, err = parsed.DecryptMulti(sharedKey)
 	require.NoError(t, err, "error on decrypt with AES")
 
 	require.Equal(t, 1, i, "recipient index should be 1 for shared key")
 
-	require.Equal(t, input, output, "%v %v %v", "Decrypted output does not match input", output, input)
+	require.Equal(t, input, output, "Decrypted output does not match input output=%v input=%v", output, input)
 }
 
 func TestMultiRecipientErrors(t *testing.T) {
@@ -563,7 +551,7 @@ func TestEncrypterOptions(t *testing.T) {
 	enc, err := NewEncrypter(A256GCM, Recipient{Algorithm: A256GCMKW, Key: sharedKey}, opts)
 	if err != nil {
 		fmt.Println(err)
-		t.Error("Failed to create encrypter")
+		assert.Fail(t, "Failed to create encrypter")
 	}
 
 	assert.Equal(t, enc.Options(), *opts, "Encrypter options do not match")
@@ -585,7 +573,7 @@ func TestEncrypterExtraHeaderInclusion(t *testing.T) {
 	enc, err := NewEncrypter(A256GCM, Recipient{Algorithm: A256GCMKW, Key: sharedKey}, opts)
 	if err != nil {
 		fmt.Println(err)
-		t.Error("Failed to create encrypter")
+		assert.Fail(t, "Failed to create encrypter")
 	}
 
 	assert.Equal(t, enc.Options(), *opts, "Encrypter options do not match")
@@ -600,12 +588,12 @@ func TestEncrypterExtraHeaderInclusion(t *testing.T) {
 	output, err := parsed.Decrypt(sharedKey)
 	require.NoError(t, err, "error on decrypt")
 
-	require.Equal(t, input, output, "%v %v %v", "Decrypted output does not match input: ", output, input)
+	require.Equal(t, input, output, "Decrypted output does not match input: %v input=%v", output, input)
 
 	if parsed.Header.ExtraHeaders[HeaderType] != "JWT" ||
 		parsed.Header.ExtraHeaders[HeaderContentType] != "JWT" ||
 		parsed.Header.ExtraHeaders[HeaderKey("myCustomHeader")] != "xyz" {
-		t.Fatalf("Mismatch in extra headers: %#v", parsed.Header.ExtraHeaders)
+		require.Failf(t, "unexpected result", "Mismatch in extra headers: %#v", parsed.Header.ExtraHeaders)
 	}
 }
 
@@ -751,9 +739,8 @@ func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
 		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000}, nil)
 		require.NoError(t, err)
 
-		if first, second := p2s(t, enc), p2s(t, enc); first == second {
-			t.Fatalf("expected a fresh p2s for each message, got %x twice", first)
-		}
+		first, second := p2s(t, enc), p2s(t, enc)
+		require.NotEqual(t, second, first, "expected a fresh p2s for each message, got %x twice", first)
 	})
 
 	t.Run("ShouldKeepASuppliedSalt", func(t *testing.T) {
@@ -907,9 +894,8 @@ func TestRejectTooHighP2C(t *testing.T) {
 
 				headers := obj.mergedHeaders(&obj.recipients[0])
 
-				if _, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &obj.recipients[0], randomKeyGenerator{size: 16}); err == nil || !strings.Contains(err.Error(), "too high") {
-					t.Errorf("decryptKey: got %v, want an error for a P2C which is too high", err)
-				}
+				_, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &obj.recipients[0], randomKeyGenerator{size: 16})
+				assert.ErrorContains(t, err, "too high", "decryptKey: got %v, want an error for a P2C which is too high", err)
 
 				for _, key := range []any{"password", []byte("password")} {
 					_, err = obj.Decrypt(key)
@@ -944,9 +930,8 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 		obj, err := ParseEncrypted(build(5), []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
 		require.NoError(t, err)
 
-		if _, _, _, err = obj.DecryptMulti([]byte("password")); !errors.Is(err, ErrPBES2WorkLimit) {
-			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
-		}
+		_, _, _, err = obj.DecryptMulti([]byte("password"))
+		require.ErrorIs(t, err, ErrPBES2WorkLimit, "expected ErrPBES2WorkLimit, got %v", err)
 	})
 
 	t.Run("ShouldRejectManyKeysUnderOneKeyID", func(t *testing.T) {
@@ -964,9 +949,8 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 		obj, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
 		require.NoError(t, err)
 
-		if _, err = obj.Decrypt(keys); !errors.Is(err, ErrPBES2WorkLimit) {
-			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
-		}
+		_, err = obj.Decrypt(keys)
+		require.ErrorIs(t, err, ErrPBES2WorkLimit, "expected ErrPBES2WorkLimit, got %v", err)
 	})
 
 	t.Run("ShouldDecryptTheLastOfSeveralDefaultRecipients", func(t *testing.T) {
@@ -1178,11 +1162,11 @@ func TestDirectEncryptionKeySizeCheck(t *testing.T) {
 
 	// AES-128 with 32-byte key should reject
 	_, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: key32}, nil)
-	assert.ErrorIs(t, err, ErrInvalidKeySize, "Should reject AES-128 with 32-byte key")
+	assert.Same(t, ErrInvalidKeySize, err, "Should reject AES-128 with 32-byte key")
 
 	// AES-256 with 16-byte key should reject
 	_, err = NewEncrypter(A256GCM, Recipient{Algorithm: DIRECT, Key: key16}, nil)
-	assert.ErrorIs(t, err, ErrInvalidKeySize, "Should reject AES-256 with 16-byte key")
+	assert.Same(t, ErrInvalidKeySize, err, "Should reject AES-256 with 16-byte key")
 }
 
 func generateTestKeys(keyAlg KeyAlgorithm, encAlg ContentEncryption) []testKey {
@@ -1617,11 +1601,9 @@ func TestDecryptRejectsContentEncryptionKeyOfIncorrectSize(t *testing.T) {
 
 			plaintext, err := object.Decrypt(rsaTestKey)
 
-			assert.ErrorIs(t, err, ErrCryptoFailure, "Decrypt() error = %v, want %v", err, ErrCryptoFailure)
+			assert.Same(t, ErrCryptoFailure, err, "Decrypt() error = %v, want %v", err, ErrCryptoFailure)
 
-			if plaintext != nil {
-				t.Errorf("Decrypt() plaintext = %q, want nil", plaintext)
-			}
+			assert.Nil(t, plaintext, "Decrypt() plaintext = %q, want nil", plaintext)
 		})
 	}
 }
@@ -1706,9 +1688,8 @@ func TestValidateCEKSize(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validateCEKSize(make([]byte, tc.size), tc.cipher); err != tc.err {
-				t.Errorf("validateCEKSize() error = %v, want %v", err, tc.err)
-			}
+			err := validateCEKSize(make([]byte, tc.size), tc.cipher)
+			assert.Equal(t, tc.err, err, "validateCEKSize() error = %v, want %v", err, tc.err)
 		})
 	}
 }
@@ -1791,18 +1772,11 @@ func TestJWEUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "JWKS plaintext = %q", plaintext)
 
-	if parsed.Header.KeyID != "" {
-		t.Errorf("unprotected kid was exposed as %q", parsed.Header.KeyID)
-	}
-	if parsed.Header.JSONWebKey != nil {
-		t.Error("unprotected jwk was exposed")
-	}
-	if _, err = parsed.Header.Certificates(x509.VerifyOptions{}); err != ErrMissingX5cHeader {
-		t.Errorf("unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
-	}
-	if parsed.Header.ExtraHeaders[HeaderKey("custom")] != "preserved" {
-		t.Errorf("custom header = %v, want %q", parsed.Header.ExtraHeaders[HeaderKey("custom")], "preserved")
-	}
+	assert.Equal(t, "", parsed.Header.KeyID)
+	assert.Nil(t, parsed.Header.JSONWebKey, "unprotected jwk was exposed")
+	_, err = parsed.Header.Certificates(x509.VerifyOptions{})
+	assert.Same(t, ErrMissingX5cHeader, err, "unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
+	assert.Equal(t, "preserved", parsed.Header.ExtraHeaders[HeaderKey("custom")])
 }
 
 func TestJWERecipientUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
@@ -1834,15 +1808,10 @@ func TestJWERecipientUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 	require.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "plaintext = %q", plaintext)
 
 	assert.Equal(t, "", headerOut.KeyID, "unprotected kid was exposed as %q", headerOut.KeyID)
-	if headerOut.JSONWebKey != nil {
-		t.Error("unprotected jwk was exposed")
-	}
-	if _, err = headerOut.Certificates(x509.VerifyOptions{}); err != ErrMissingX5cHeader {
-		t.Errorf("unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
-	}
-	if headerOut.ExtraHeaders[HeaderKey("custom")] != "preserved" {
-		t.Errorf("custom header = %v, want %q", headerOut.ExtraHeaders[HeaderKey("custom")], "preserved")
-	}
+	assert.Nil(t, headerOut.JSONWebKey, "unprotected jwk was exposed")
+	_, err = headerOut.Certificates(x509.VerifyOptions{})
+	assert.Same(t, ErrMissingX5cHeader, err, "unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
+	assert.Equal(t, "preserved", headerOut.ExtraHeaders[HeaderKey("custom")])
 }
 
 func injectJWEHeader(t *testing.T, serialized, field string, header map[string]interface{}) string {
@@ -1918,7 +1887,7 @@ func TestECDHESPartyInfoIsBoundToTheDerivedKey(t *testing.T) {
 
 	ephemeral, ok := epk.Key.(*ecdsa.PublicKey)
 	if !ok {
-		t.Fatalf("epk is a %T, want *ecdsa.PublicKey", epk.Key)
+		require.Failf(t, "unexpected result", "epk is a %T, want *ecdsa.PublicKey", epk.Key)
 	}
 
 	contentCipher := getContentCipher(A128GCM)
@@ -2079,9 +2048,8 @@ func TestNewEncrypterRejectsUnhonouredRecipientParameters(t *testing.T) {
 				require.ErrorIs(t, err, ErrUnsupportedRecipientParameter, "NewEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
 
 				// The multi-recipient constructor shares addRecipient, so it must agree.
-				if _, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{tc.recipient}, tc.opts); !errors.Is(err, ErrUnsupportedRecipientParameter) {
-					t.Fatalf("NewMultiEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
-				}
+				_, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{tc.recipient}, tc.opts)
+				require.ErrorIs(t, err, ErrUnsupportedRecipientParameter, "NewMultiEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
 
 				return
 			}
@@ -2173,9 +2141,8 @@ func TestNewEncrypterRejectsUnusableExtraHeaders(t *testing.T) {
 				require.ErrorIs(t, err, tc.wantErr, "NewEncrypter: got %v, want %v", err, tc.wantErr)
 
 				// The multi-recipient constructor shares the rule.
-				if _, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{recipient}, opts); !errors.Is(err, tc.wantErr) {
-					t.Fatalf("NewMultiEncrypter: got %v, want %v", err, tc.wantErr)
-				}
+				_, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{recipient}, opts)
+				require.ErrorIs(t, err, tc.wantErr, "NewMultiEncrypter: got %v, want %v", err, tc.wantErr)
 
 				return
 			}
@@ -2314,11 +2281,11 @@ func TestDecryptRejectsPerRecipientCritical(t *testing.T) {
 
 			if name == "without" {
 				if err != nil || string(plaintext) != "plaintext" {
-					t.Errorf("Decrypt = %q, %v", plaintext, err)
+					assert.Failf(t, "unexpected result", "Decrypt = %q, %v", plaintext, err)
 				}
 
 				if multiErr != nil || string(multiPlaintext) != "plaintext" {
-					t.Errorf("DecryptMulti = %q, %v", multiPlaintext, multiErr)
+					assert.Failf(t, "unexpected result", "DecryptMulti = %q, %v", multiPlaintext, multiErr)
 				}
 
 				return
@@ -2356,9 +2323,8 @@ func TestDecryptMultiRejectsCriticalOnAnotherRecipient(t *testing.T) {
 	require.NoError(t, err, "ParseEncryptedJSON")
 
 	// The first recipient's key decrypts, and must not be allowed to.
-	if _, _, plaintext, err := parsed.DecryptMulti(first); !errors.Is(err, ErrUnsupportedCriticalHeader) {
-		t.Errorf("DecryptMulti = %q, got %v, want %v", plaintext, err, ErrUnsupportedCriticalHeader)
-	}
+	_, _, plaintext, err := parsed.DecryptMulti(first)
+	assert.ErrorIs(t, err, ErrUnsupportedCriticalHeader, "DecryptMulti = %q, got %v, want %v", plaintext, err, ErrUnsupportedCriticalHeader)
 }
 
 // RFC 7518 Sections 4.4 and 4.7 define one key length per symmetric key management algorithm identifier, but the
@@ -2401,14 +2367,12 @@ func TestSymmetricKeySizeIsBoundToTheAlgorithm(t *testing.T) {
 			require.NoError(t, err, "ParseEncryptedJSON")
 
 			_, _, plaintext, err := parsed.DecryptMulti(first)
-			assert.ErrorIs(t, err, ErrCryptoFailure, "DecryptMulti: got %v, want %v", err, ErrCryptoFailure)
+			assert.Same(t, ErrCryptoFailure, err, "DecryptMulti: got %v, want %v", err, ErrCryptoFailure)
 
-			if plaintext != nil {
-				t.Errorf("DecryptMulti returned plaintext %q for a relabelled recipient", plaintext)
-			}
+			assert.Nil(t, plaintext, "DecryptMulti returned plaintext %q for a relabelled recipient", plaintext)
 
 			if _, _, plaintext, err = parsed.DecryptMulti(second); err != nil || string(plaintext) != "plaintext" {
-				t.Errorf("DecryptMulti for the untouched recipient = %q, %v", plaintext, err)
+				assert.Failf(t, "unexpected result", "DecryptMulti for the untouched recipient = %q, %v", plaintext, err)
 			}
 		})
 	}
@@ -2463,7 +2427,7 @@ func TestNewEncrypterRejectsKeySizeContradictingTheAlgorithm(t *testing.T) {
 			encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: tc.alg, Key: tc.key}, nil)
 
 			if tc.wantErr {
-				require.ErrorIs(t, err, ErrInvalidKeySize, "NewEncrypter: got %v, want %v", err, ErrInvalidKeySize)
+				require.Same(t, ErrInvalidKeySize, err, "NewEncrypter: got %v, want %v", err, ErrInvalidKeySize)
 
 				return
 			}
@@ -2507,11 +2471,10 @@ func TestJWENilDecryptionKey(t *testing.T) {
 		"JWKS": (*JSONWebKeySet)(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := obj.Decrypt(decryptionKey); !errors.Is(err, ErrUnsupportedKeyType) {
-				t.Errorf("Decrypt() error = %v, want %v", err, ErrUnsupportedKeyType)
-			}
+			_, err := obj.Decrypt(decryptionKey)
+			assert.Same(t, ErrUnsupportedKeyType, err, "Decrypt() error = %v, want %v", err, ErrUnsupportedKeyType)
 
-			_, _, _, err := obj.DecryptMulti(decryptionKey)
+			_, _, _, err = obj.DecryptMulti(decryptionKey)
 			assert.Error(t, err, "DecryptMulti() accepted a nil decryption key")
 		})
 	}
@@ -2527,13 +2490,12 @@ func TestNewMultiEncrypterRespectsMaxRecipients(t *testing.T) {
 		{Algorithm: A128KW, Key: make([]byte, 16)},
 	}
 
-	if _, err := NewMultiEncrypter(A128GCM, rcpts, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
-		t.Errorf("expected too many recipients error, got %v", err)
-	}
+	_, err := NewMultiEncrypter(A128GCM, rcpts, nil)
+	assert.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
 
 	MaxRecipients = 2
 
-	_, err := NewMultiEncrypter(A128GCM, rcpts, nil)
+	_, err = NewMultiEncrypter(A128GCM, rcpts, nil)
 	assert.NoError(t, err, "unexpected error")
 }
 
@@ -2542,9 +2504,8 @@ func TestNewEncrypterRespectsMaxRecipients(t *testing.T) {
 
 	MaxRecipients = 0
 
-	if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: make([]byte, 16)}, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
-		t.Errorf("expected too many recipients error, got %v", err)
-	}
+	_, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: make([]byte, 16)}, nil)
+	assert.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
 }
 
 func TestNewEncrypterRejectsNilJSONWebKey(t *testing.T) {
@@ -2553,7 +2514,7 @@ func TestNewEncrypterRejectsNilJSONWebKey(t *testing.T) {
 	for _, alg := range []KeyAlgorithm{DIRECT, RSA_OAEP, ECDH_ES, ECDH_ES_A128KW, A128KW} {
 		t.Run(string(alg), func(t *testing.T) {
 			_, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: key}, nil)
-			assert.ErrorIs(t, err, ErrUnsupportedKeyType)
+			assert.Same(t, ErrUnsupportedKeyType, err)
 		})
 	}
 }
@@ -2562,5 +2523,5 @@ func TestNewMultiEncrypterRejectsNilJSONWebKey(t *testing.T) {
 	var key *JSONWebKey
 
 	_, err := NewMultiEncrypter(A128GCM, []Recipient{{Algorithm: A128KW, Key: key}}, nil)
-	assert.ErrorIs(t, err, ErrUnsupportedKeyType)
+	assert.Same(t, ErrUnsupportedKeyType, err)
 }

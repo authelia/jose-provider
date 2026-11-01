@@ -75,10 +75,10 @@ func TestDecodeClaims(t *testing.T) {
 		assert.Equal(t, "subject", c.Subject)
 		assert.Equal(t, Audience{"a1", "a2"}, c.Audience)
 		if !now.Equal(c.IssuedAt.Time()) {
-			t.Errorf("IssuedAt = %s, want %s", c.IssuedAt.Time(), now)
+			assert.Failf(t, "unexpected result", "IssuedAt = %s, want %s", c.IssuedAt.Time(), now)
 		}
 		if !now.Add(1 * time.Hour).Equal(c.Expiry.Time()) {
-			t.Errorf("Expiry = %s, want %s", c.Expiry.Time(), now.Add(1*time.Hour))
+			assert.Failf(t, "unexpected result", "Expiry = %s, want %s", c.Expiry.Time(), now.Add(1*time.Hour))
 		}
 	}
 
@@ -106,18 +106,18 @@ func TestDecodeClaims(t *testing.T) {
 func TestNumericDate(t *testing.T) {
 	zeroDate := NewNumericDate(time.Time{})
 	if !zeroDate.Time().Equal(time.Time{}) {
-		t.Errorf("zeroDate.Time() = %s, want %s", zeroDate.Time(), time.Time{})
+		assert.Failf(t, "unexpected result", "zeroDate.Time() = %s, want %s", zeroDate.Time(), time.Time{})
 	}
 
 	zeroDate2 := (*NumericDate)(nil)
 	if !zeroDate2.Time().Equal(time.Time{}) {
-		t.Errorf("zeroDate2.Time() = %s, want %s", zeroDate2.Time(), time.Time{})
+		assert.Failf(t, "unexpected result", "zeroDate2.Time() = %s, want %s", zeroDate2.Time(), time.Time{})
 	}
 
 	nonZeroDate := NewNumericDate(time.Unix(0, 0))
 	expected := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	if !nonZeroDate.Time().Equal(expected) {
-		t.Errorf("nonZeroDate.Time() = %s, want %s", nonZeroDate.Time(), expected)
+		assert.Failf(t, "unexpected result", "nonZeroDate.Time() = %s, want %s", nonZeroDate.Time(), expected)
 	}
 }
 
@@ -238,13 +238,13 @@ func TestEncodeClaimsTimeValues(t *testing.T) {
 	c2 := Claims{}
 	if err := json.Unmarshal(b, &c2); assert.NoError(t, err) {
 		if !c.NotBefore.Time().Equal(c2.NotBefore.Time()) {
-			t.Errorf("c2.NotBefore = %s, want %s", c2.NotBefore.Time(), c.NotBefore.Time())
+			assert.Failf(t, "unexpected result", "c2.NotBefore = %s, want %s", c2.NotBefore.Time(), c.NotBefore.Time())
 		}
 		if !c.IssuedAt.Time().Equal(c2.IssuedAt.Time()) {
-			t.Errorf("c2.IssuedAt = %s, want %s", c2.IssuedAt.Time(), c.IssuedAt.Time())
+			assert.Failf(t, "unexpected result", "c2.IssuedAt = %s, want %s", c2.IssuedAt.Time(), c.IssuedAt.Time())
 		}
 		if !c.Expiry.Time().Equal(c2.Expiry.Time()) {
-			t.Errorf("c2.Expiry = %s, want %s", c2.Expiry.Time(), c.Expiry.Time())
+			assert.Failf(t, "unexpected result", "c2.Expiry = %s, want %s", c2.Expiry.Time(), c.Expiry.Time())
 		}
 	}
 }

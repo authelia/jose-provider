@@ -31,38 +31,22 @@ func TestKeyUnwrapShort(t *testing.T) {
 	block0, _ := aes.NewCipher(kek0)
 	want := "go-jose/go-jose: JWE Encrypted Key too short"
 	_, err := KeyUnwrap(block0, nil)
-	if err == nil {
-		t.Error("KeyUnwrap(_, nil): got nil, want error")
-	} else if err.Error() != want {
-		t.Errorf("KeyUnwrap(_, nil): got %q, want %q", err, want)
-	}
+	assert.EqualError(t, err, want)
 
 	input := []byte{}
 	_, err = KeyUnwrap(block0, []byte{})
-	if err == nil {
-		t.Errorf("KeyUnwrap(_, %q): got nil, want error", input)
-	} else if err.Error() != want {
-		t.Errorf("KeyUnwrap(_, %q): got %q, want %q", input, err, want)
-	}
+	assert.EqualError(t, err, want)
 
 	for n := 0; n < 16; n++ {
 		input := bytes.Repeat([]byte("a"), n)
 		_, err = KeyUnwrap(block0, input)
-		if err == nil {
-			t.Errorf("KeyUnwrap(_, %q): got nil, want error", input)
-		} else if err.Error() != want {
-			t.Errorf("KeyUnwrap(_, nil): got %q, want %q", err, want)
-		}
+		assert.EqualError(t, err, want)
 	}
 
 	input = bytes.Repeat([]byte("a"), 25)
 	want = "go-jose/go-jose: key wrap input must be 8 byte blocks"
 	_, err = KeyUnwrap(block0, input)
-	if err == nil {
-		t.Errorf("KeyUnwrap(_, %q): got nil, want error", input)
-	} else if err.Error() != want {
-		t.Errorf("KeyUnwrap(_, %q): got %q, want %q", input, err, want)
-	}
+	assert.EqualError(t, err, want)
 
 }
 
@@ -91,21 +75,21 @@ func TestAesKeyWrap(t *testing.T) {
 	out1, _ := KeyWrap(block1, cek1)
 	out2, _ := KeyWrap(block2, cek2)
 
-	assert.Equal(t, expected0, out0, "%v %v %v %v", "output 0 not as expected, got", out0, "wanted", expected0)
+	assert.Equal(t, expected0, out0, "output 0 not as expected, got out0=%v wanted expected0=%v", out0, expected0)
 
-	assert.Equal(t, expected1, out1, "%v %v %v %v", "output 1 not as expected, got", out1, "wanted", expected1)
+	assert.Equal(t, expected1, out1, "output 1 not as expected, got out1=%v wanted expected1=%v", out1, expected1)
 
-	assert.Equal(t, expected2, out2, "%v %v %v %v", "output 2 not as expected, got", out2, "wanted", expected2)
+	assert.Equal(t, expected2, out2, "output 2 not as expected, got out2=%v wanted expected2=%v", out2, expected2)
 
 	unwrap0, _ := KeyUnwrap(block0, out0)
 	unwrap1, _ := KeyUnwrap(block1, out1)
 	unwrap2, _ := KeyUnwrap(block2, out2)
 
-	assert.Equal(t, cek0, unwrap0, "%v %v %v %v", "key unwrap did not return original input, got", unwrap0, "wanted", cek0)
+	assert.Equal(t, cek0, unwrap0, "key unwrap did not return original input, got unwrap0=%v wanted cek0=%v", unwrap0, cek0)
 
-	assert.Equal(t, cek1, unwrap1, "%v %v %v %v", "key unwrap did not return original input, got", unwrap1, "wanted", cek1)
+	assert.Equal(t, cek1, unwrap1, "key unwrap did not return original input, got unwrap1=%v wanted cek1=%v", unwrap1, cek1)
 
-	assert.Equal(t, cek2, unwrap2, "%v %v %v %v", "key unwrap did not return original input, got", unwrap2, "wanted", cek2)
+	assert.Equal(t, cek2, unwrap2, "key unwrap did not return original input, got unwrap2=%v wanted cek2=%v", unwrap2, cek2)
 }
 
 func TestAesKeyWrapInvalid(t *testing.T) {

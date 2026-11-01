@@ -31,11 +31,11 @@ import (
 
 func TestInvalidSymmetricAlgorithms(t *testing.T) {
 	_, err := newSymmetricRecipient("XYZ", []byte{})
-	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should not accept invalid algorithm")
+	assert.Same(t, ErrUnsupportedAlgorithm, err, "should not accept invalid algorithm")
 
 	enc := &symmetricKeyCipher{}
 	_, err = enc.encryptKey([]byte{}, "XYZ")
-	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "should not accept invalid algorithm")
+	assert.Same(t, ErrUnsupportedAlgorithm, err, "should not accept invalid algorithm")
 }
 
 func TestAeadErrors(t *testing.T) {
@@ -48,10 +48,10 @@ func TestAeadErrors(t *testing.T) {
 	}
 
 	parts, err := aead.encrypt([]byte{}, []byte{}, []byte{})
-	assert.ErrorIs(t, err, ErrCryptoFailure, "should handle aead failure")
+	assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 
 	_, err = aead.decrypt([]byte{}, []byte{}, parts)
-	assert.ErrorIs(t, err, ErrCryptoFailure, "should handle aead failure")
+	assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 }
 
 func TestInvalidKey(t *testing.T) {
@@ -82,7 +82,7 @@ func TestAeadInvalidInput(t *testing.T) {
 	for _, tc := range tt {
 		aead := newAESGCM(16).(*aeadContentCipher)
 		_, err := aead.decrypt(sample, []byte{}, &tc)
-		assert.ErrorIs(t, err, ErrCryptoFailure, "should handle aead failure")
+		assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 	}
 }
 
@@ -120,8 +120,7 @@ func TestVectorsAESGCM(t *testing.T) {
 	enc := newAESGCM(32)
 	key, _, _ := randomKeyGenerator{size: 32}.genKey()
 	out, err := enc.encrypt(key, aad, plaintext)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 

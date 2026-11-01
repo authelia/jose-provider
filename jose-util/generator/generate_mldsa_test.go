@@ -33,9 +33,8 @@ func TestNewMLDSASigningKey(t *testing.T) {
 		t.Run(string(alg), func(t *testing.T) {
 			pub, priv, err := NewSigningKey(alg, 0)
 			require.NoError(t, err, "NewSigningKey")
-			if _, ok := pub.(*mldsa.PublicKey); !ok {
-				t.Errorf("public key is %T; want *mldsa.PublicKey", pub)
-			}
+			_, ok := pub.(*mldsa.PublicKey)
+			assert.True(t, ok, "public key is %T; want *mldsa.PublicKey", pub)
 			privKey, ok := priv.(*mldsa.PrivateKey)
 			require.True(t, ok, "private key is %T; want *mldsa.PrivateKey", priv)
 

@@ -204,11 +204,7 @@ func TestRejectUnprotectedJWSNonce(t *testing.T) {
 		"signature": "QUJD"
 	}`
 	_, err := ParseSigned(input, []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-	if err == nil {
-		t.Error("JWS with an unprotected nonce parsed as valid.")
-	} else if err != ErrUnprotectedNonce {
-		t.Errorf("Improper error for unprotected nonce: %v", err)
-	}
+	assert.Same(t, ErrUnprotectedNonce, err, "Improper error for unprotected nonce")
 
 	// Full JSON
 	input = `{
@@ -219,11 +215,7 @@ func TestRejectUnprotectedJWSNonce(t *testing.T) {
 		}]
 	}`
 	_, err = ParseSigned(input, []SignatureAlgorithm{SignatureAlgorithm("XYZ")})
-	if err == nil {
-		t.Error("JWS with an unprotected nonce parsed as valid.")
-	} else if err != ErrUnprotectedNonce {
-		t.Errorf("Improper error for unprotected nonce: %v", err)
-	}
+	assert.Same(t, ErrUnprotectedNonce, err, "Improper error for unprotected nonce")
 }
 
 func TestParseSignedJSONDoesNotRewriteMemberNames(t *testing.T) {
@@ -250,9 +242,7 @@ func TestParseSignedJSONDoesNotRewriteMemberNames(t *testing.T) {
 	parsed, err := ParseSigned(raw, []SignatureAlgorithm{RS256})
 	require.NoError(t, err, "ParseSigned")
 	header := parsed.Signatures[0].Header
-	if header.JSONWebKey != nil {
-		t.Fatal("ParseSigned exposed a JWK from a whitespace-mutated member name")
-	}
+	require.Nil(t, header.JSONWebKey, "ParseSigned exposed a JWK from a whitespace-mutated member name")
 	_, ok := header.ExtraHeaders[HeaderKey("url")]
 	require.False(t, ok, "ParseSigned exposed a header from a whitespace-mutated member name")
 
@@ -279,9 +269,7 @@ func TestVerifyFlattenedWithIncludedUnprotectedKey(t *testing.T) {
 	require.NoError(t, err, "Unable to parse valid message")
 	assert.Len(t, jws.Signatures, 1, "Too many or too few signatures.")
 	sig := jws.Signatures[0]
-	if sig.Header.JSONWebKey == nil {
-		t.Error("No JWK in signature header.")
-	}
+	assert.NotNil(t, sig.Header.JSONWebKey, "No JWK in signature header.")
 	payload, err := jws.Verify(sig.Header.JSONWebKey)
 	assert.NoError(t, err, "Signature did not validate")
 	assert.Equal(t, "foo\n", string(payload), "Payload was incorrect: '%s' should have been 'foo\\n'", string(payload))
@@ -305,20 +293,18 @@ func TestDetachedVerifyJWS(t *testing.T) {
 
 	for _, msg := range sampleMessages {
 		obj, err := ParseSigned(msg, []SignatureAlgorithm{RS256, RS384})
-		if err != nil {
-			t.Error("unable to parse message", msg, err)
+		if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 			continue
 		}
 		payload := obj.payload
 		obj.payload = nil
 		err = obj.DetachedVerify(payload, rsaPublicKey)
-		if err != nil {
-			t.Error("unable to verify message", msg, err)
+		if !assert.NoError(t, err, "unable to verify message msg=%v", msg) {
 			continue
 		}
 		idx, _, err := obj.DetachedVerifyMulti(payload, rsaPublicKey)
 		if idx != 0 || err != nil {
-			t.Error("unable to verify message", msg, err)
+			assert.Failf(t, "unexpected result", "unable to verify message msg=%v err=%v", msg, err)
 			continue
 		}
 	}
@@ -334,9 +320,7 @@ func TestVerifyFlattenedWithPrivateProtected(t *testing.T) {
 	assert.NoError(t, err, "Unable to parse valid message.")
 	assert.Len(t, jws.Signatures, 1, "Too many or too few signatures.")
 	sig := jws.Signatures[0]
-	if sig.Header.JSONWebKey == nil {
-		t.Error("No JWK in signature header.")
-	}
+	assert.NotNil(t, sig.Header.JSONWebKey, "No JWK in signature header.")
 	payload, err := jws.Verify(sig.Header.JSONWebKey)
 	assert.NoError(t, err, "Signature did not validate")
 	expected := "{\"contact\":[\"mailto:foo@bar.com\"]}"
@@ -367,16 +351,14 @@ func TestSampleNimbusJWSMessagesRSA(t *testing.T) {
 
 	for _, msg := range rsaSampleMessages {
 		obj, err := ParseSigned(msg, []SignatureAlgorithm{RS256, RS384, RS512, PS256})
-		if err != nil {
-			t.Error("unable to parse message", msg, err)
+		if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 			continue
 		}
 		payload, err := obj.Verify(rsaPublicKey)
-		if err != nil {
-			t.Error("unable to verify message", msg, err)
+		if !assert.NoError(t, err, "unable to verify message msg=%v", msg) {
 			continue
 		}
-		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "%v %v", "payload is not what we expected for msg", msg)
+		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "payload is not what we expected for msg msg=%v", msg)
 	}
 }
 
@@ -405,16 +387,14 @@ func TestSampleNimbusJWSMessagesEC(t *testing.T) {
 
 	for i, msg := range ecSampleMessages {
 		obj, err := ParseSigned(msg, []SignatureAlgorithm{ES256, ES384, ES512})
-		if err != nil {
-			t.Error("unable to parse message", msg, err)
+		if !assert.NoError(t, err, "unable to parse message msg=%v", msg) {
 			continue
 		}
 		payload, err := obj.Verify(ecPublicKeys[i])
-		if err != nil {
-			t.Error("unable to verify message", msg, err)
+		if !assert.NoError(t, err, "unable to verify message msg=%v", msg) {
 			continue
 		}
-		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "%v %v", "payload is not what we expected for msg", msg)
+		assert.Equal(t, "Lorem ipsum dolor sit amet", string(payload), "payload is not what we expected for msg msg=%v", msg)
 	}
 }
 
@@ -422,7 +402,7 @@ func TestHeaderFieldsCompact(t *testing.T) {
 	msg := "eyJhbGciOiJFUzUxMiJ9.TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ.AeYNFC1rwIgQv-5fwd8iRyYzvTaSCYTEICepgu9gRId-IW99kbSVY7yH0MvrQnqI-a0L8zwKWDR35fW5dukPAYRkADp3Y1lzqdShFcEFziUVGo46vqbiSajmKFrjBktJcCsfjKSaLHwxErF-T10YYPCQFHWb2nXJOOI3CZfACYqgO84g"
 
 	obj, err := ParseSigned(msg, []SignatureAlgorithm{ES512})
-	require.NoError(t, err, "%v %v", "unable to parse message", msg)
+	require.NoError(t, err, "unable to parse message msg=%v", msg)
 	assert.Equal(t, "ES512", obj.Signatures[0].Header.Algorithm, "merged header did not contain expected alg value")
 	assert.Equal(t, "ES512", obj.Signatures[0].Protected.Algorithm, "protected header did not contain expected alg value")
 	assert.Equal(t, "", obj.Signatures[0].Unprotected.Algorithm, "unprotected header contained an alg value")
@@ -432,13 +412,11 @@ func TestHeaderFieldsFull(t *testing.T) {
 	msg := `{"payload":"TG9yZW0gaXBzdW0gZG9sb3Igc2l0IGFtZXQ","protected":"eyJhbGciOiJFUzUxMiJ9","header":{"custom":"test"},"signature":"AeYNFC1rwIgQv-5fwd8iRyYzvTaSCYTEICepgu9gRId-IW99kbSVY7yH0MvrQnqI-a0L8zwKWDR35fW5dukPAYRkADp3Y1lzqdShFcEFziUVGo46vqbiSajmKFrjBktJcCsfjKSaLHwxErF-T10YYPCQFHWb2nXJOOI3CZfACYqgO84g"}`
 
 	obj, err := ParseSigned(msg, []SignatureAlgorithm{ES512})
-	require.NoError(t, err, "%v %v", "unable to parse message", msg)
+	require.NoError(t, err, "unable to parse message msg=%v", msg)
 	assert.Equal(t, "ES512", obj.Signatures[0].Header.Algorithm, "merged header did not contain expected alg value")
 	assert.Equal(t, "ES512", obj.Signatures[0].Protected.Algorithm, "protected header did not contain expected alg value")
 	assert.Equal(t, "", obj.Signatures[0].Unprotected.Algorithm, "unprotected header contained an alg value")
-	if obj.Signatures[0].Unprotected.ExtraHeaders["custom"] != "test" {
-		t.Error("unprotected header did not contain custom header value")
-	}
+	assert.Equal(t, "test", obj.Signatures[0].Unprotected.ExtraHeaders["custom"], "unprotected header did not contain custom header value")
 }
 
 func TestErrorMissingPayloadJWS(t *testing.T) {
@@ -455,15 +433,9 @@ func TestErrorUnexpectedSignatureAlgorithmInProtected(t *testing.T) {
 	require.Error(t, err, "was able to parse message with unexpected signature algorithm")
 	var errUnexpectedSigAlg *ErrUnexpectedSignatureAlgorithm
 	require.True(t, errors.As(err, &errUnexpectedSigAlg), "unexpected error type, should be UnsupportedAlgorithmError")
-	if errUnexpectedSigAlg.Got != HS256 {
-		t.Fatalf("unexpected algo should be HS256, got: %s", errUnexpectedSigAlg.Got)
-	}
-	if len(errUnexpectedSigAlg.expected) != 1 {
-		t.Fatalf("expected algo should be a single algo, got: %d", len(errUnexpectedSigAlg.expected))
-	}
-	if errUnexpectedSigAlg.expected[0] != ES256 {
-		t.Fatalf("expected algo should be ES256, got: %s", errUnexpectedSigAlg.expected)
-	}
+	require.Equal(t, HS256, errUnexpectedSigAlg.Got)
+	require.Len(t, errUnexpectedSigAlg.expected, 1)
+	require.Equal(t, ES256, errUnexpectedSigAlg.expected[0])
 }
 
 func TestErrorUnexpectedSignatureAlgorithmInSignatures(t *testing.T) {
@@ -482,15 +454,9 @@ func TestErrorUnexpectedSignatureAlgorithmInSignatures(t *testing.T) {
 	require.Error(t, err, "was able to parse message with unexpected signature algorithm")
 	var errUnexpectedSigAlg *ErrUnexpectedSignatureAlgorithm
 	require.True(t, errors.As(err, &errUnexpectedSigAlg), "unexpected error type, should be UnsupportedAlgorithmError")
-	if errUnexpectedSigAlg.Got != HS256 {
-		t.Fatalf("unexpected algo should be HS256, got: %s", errUnexpectedSigAlg.Got)
-	}
-	if len(errUnexpectedSigAlg.expected) != 1 {
-		t.Fatalf("expected algo should be a single algo, got: %d", len(errUnexpectedSigAlg.expected))
-	}
-	if errUnexpectedSigAlg.expected[0] != ES256 {
-		t.Fatalf("expected algo should be ES256, got: %s", errUnexpectedSigAlg.expected)
-	}
+	require.Equal(t, HS256, errUnexpectedSigAlg.Got)
+	require.Len(t, errUnexpectedSigAlg.expected, 1)
+	require.Equal(t, ES256, errUnexpectedSigAlg.expected[0])
 }
 
 // Test that a null value in the header doesn't panic
@@ -505,7 +471,7 @@ func TestNullHeaderValue(t *testing.T) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("ParseSigned panic'd when parsing a message with a null protected header value")
+			assert.Failf(t, "unexpected result", "ParseSigned panic'd when parsing a message with a null protected header value")
 		}
 	}()
 	_, err := ParseSigned(msg, []SignatureAlgorithm{ES256})
@@ -551,9 +517,7 @@ func TestEmbedJWKBug(t *testing.T) {
 	assert.Equal(t, "", parsed.Signatures[0].Header.KeyID, "expected kid field in protected header to be empty")
 	assert.Equal(t, "rsa-test-key", parsed.Signatures[0].Header.JSONWebKey.KeyID, "expected rsa-test-key to be kid in embedded JWK in protected header")
 	assert.Equal(t, "rsa-test-key", parsedNoEmbed.Signatures[0].Header.KeyID, "expected kid field in protected header to be rsa-test-key")
-	if parsedNoEmbed.Signatures[0].Header.JSONWebKey != nil {
-		t.Error("expected no embedded JWK to be present")
-	}
+	assert.Nil(t, parsedNoEmbed.Signatures[0].Header.JSONWebKey, "expected no embedded JWK to be present")
 }
 
 func TestJWSWithCertificateChain(t *testing.T) {
@@ -615,10 +579,10 @@ func TestJWSWithCertificateChain(t *testing.T) {
 
 		chains, err := parsed.Signatures[0].Protected.Certificates(opts)
 		if testCase.success && (len(chains) == 0 || err != nil) {
-			t.Fatalf("failed to verify certificate chain for test case %d: %s", i, err)
+			require.Failf(t, "unexpected result", "failed to verify certificate chain for test case %d: %s", i, err)
 		}
 		if !testCase.success && (len(chains) != 0 && err == nil) {
-			t.Fatalf("incorrectly verified certificate chain for test case %d (should fail)", i)
+			require.Failf(t, "unexpected result", "incorrectly verified certificate chain for test case %d (should fail)", i)
 		}
 	}
 }
@@ -938,18 +902,15 @@ func TestParseSignedJSONSurfacesPerSignatureHeader(t *testing.T) {
 	obj, err := ParseSignedJSON(serialized, []SignatureAlgorithm{HS256})
 	require.NoError(t, err, "ParseSignedJSON")
 
-	if got := obj.Signatures[0].Header.KeyID; got != "k1" {
-		t.Errorf("Header.KeyID = %q, want %q", got, "k1")
-	}
+	got := obj.Signatures[0].Header.KeyID
+	assert.Equal(t, "k1", got, "Header.KeyID = %q, want %q", got, "k1")
 
-	if got := obj.Signatures[0].Unprotected.KeyID; got != "k1" {
-		t.Errorf("Unprotected.KeyID = %q, want %q", got, "k1")
-	}
+	got = obj.Signatures[0].Unprotected.KeyID
+	assert.Equal(t, "k1", got, "Unprotected.KeyID = %q, want %q", got, "k1")
 
 	// The protected header must not pick up unprotected values.
-	if got := obj.Signatures[0].Protected.KeyID; got != "" {
-		t.Errorf("Protected.KeyID = %q, want empty", got)
-	}
+	got = obj.Signatures[0].Protected.KeyID
+	assert.Equal(t, "", got, "Protected.KeyID = %q, want empty", got)
 
 	_, err = obj.Verify(key)
 	assert.NoError(t, err, "Verify")
@@ -1065,7 +1026,7 @@ func flipUnusedBits(t *testing.T, s string) string {
 
 	index := strings.IndexByte(alphabet, s[len(s)-1])
 	if index < 0 {
-		t.Fatalf("segment ends in %q, which is not base64url", s[len(s)-1])
+		require.Failf(t, "unexpected result", "segment ends in %q, which is not base64url", s[len(s)-1])
 	}
 
 	// Set the low bits that the encoding does not use.
@@ -1104,9 +1065,7 @@ func TestParseRejectsB64WithoutCrit(t *testing.T) {
 					continue
 				}
 
-				if err != nil {
-					t.Errorf("%s: parse: %v", name, err)
-
+				if !assert.NoError(t, err, "%s: parse", name) {
 					continue
 				}
 
@@ -1119,9 +1078,7 @@ func TestParseRejectsB64WithoutCrit(t *testing.T) {
 				}
 
 				output, err := obj.Verify(key)
-				if err != nil {
-					t.Errorf("%s: Verify: %v", name, err)
-
+				if !assert.NoError(t, err, "%s: Verify", name) {
 					continue
 				}
 
@@ -1163,9 +1120,7 @@ func TestParseRejectsMalformedCritical(t *testing.T) {
 					continue
 				}
 
-				if err != nil {
-					t.Errorf("%s: parse: %v", name, err)
-
+				if !assert.NoError(t, err, "%s: parse", name) {
 					continue
 				}
 
@@ -1179,15 +1134,12 @@ func TestParseRejectsMalformedCritical(t *testing.T) {
 	// reported as unsupported rather than as malformed.
 	for name, parse := range signedJWSForms(t, key, `{"alg":"HS256","crit":["alg"]}`, true, payload) {
 		obj, err := parse()
-		if err != nil {
-			t.Errorf("%s: parse: %v", name, err)
-
+		if !assert.NoError(t, err, "%s: parse", name) {
 			continue
 		}
 
-		if err = obj.DetachedVerify(payload, key); !errors.Is(err, ErrUnsupportedCriticalHeader) {
-			t.Errorf("%s: DetachedVerify: got %v, want %v", name, err, ErrUnsupportedCriticalHeader)
-		}
+		err = obj.DetachedVerify(payload, key)
+		assert.ErrorIs(t, err, ErrUnsupportedCriticalHeader, "%s: DetachedVerify: got %v, want %v", name, err, ErrUnsupportedCriticalHeader)
 	}
 }
 
@@ -1418,11 +1370,9 @@ func TestEmbeddedPrivateJWKRejected(t *testing.T) {
 			for name, msg := range messages {
 				_, err := ParseSigned(msg, []SignatureAlgorithm{RS256})
 				if tc.wantErr {
-					if err == nil || !strings.Contains(err.Error(), "JWK contains private parameters") {
-						t.Errorf("%s: expected private parameters error, got %v", name, err)
-					}
+					assert.ErrorContains(t, err, "JWK contains private parameters", "%s: expected private parameters error, got", name)
 				} else if err != nil {
-					t.Errorf("%s: unexpected error: %v", name, err)
+					assert.Failf(t, "unexpected result", "%s: unexpected error: %v", name, err)
 				}
 			}
 		})
@@ -1474,9 +1424,8 @@ func TestUnexpectedAlgorithmCheckedBeforeHeaders(t *testing.T) {
 }
 
 func TestFullSerializeNoSignatures(t *testing.T) {
-	if out := (JSONWebSignature{}).FullSerialize(); out != "" {
-		t.Errorf("expected empty string, got %q", out)
-	}
+	out := (JSONWebSignature{}).FullSerialize()
+	assert.Equal(t, "", out, "expected empty string, got %q", out)
 }
 
 func TestParseSignedMaxSignatures(t *testing.T) {
@@ -1509,15 +1458,11 @@ func TestParseSignedMaxSignatures(t *testing.T) {
 			}
 			obj, err := ParseSigned(makeJWS(tc.signatures), []SignatureAlgorithm{RS256})
 			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "too many signatures") {
-					t.Fatalf("expected too many signatures error, got %v", err)
-				}
+				require.ErrorContains(t, err, "too many signatures", "expected too many signatures error")
 				return
 			}
 			require.NoError(t, err, "unexpected error")
-			if len(obj.Signatures) != tc.signatures {
-				t.Errorf("got %d signatures, want %d", len(obj.Signatures), tc.signatures)
-			}
+			assert.Len(t, obj.Signatures, tc.signatures)
 		})
 	}
 }
@@ -1535,12 +1480,11 @@ func TestParseSignedMaxSignaturesCountsSingleSignature(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			MaxSignatures = 0
-			if _, err := parse(); err == nil || !strings.Contains(err.Error(), "too many signatures") {
-				t.Errorf("expected too many signatures error, got %v", err)
-			}
+			_, err := parse()
+			assert.ErrorContains(t, err, "too many signatures", "expected too many signatures error")
 
 			MaxSignatures = 1
-			_, err := parse()
+			_, err = parse()
 			assert.NoError(t, err, "unexpected error")
 		})
 	}

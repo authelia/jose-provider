@@ -108,7 +108,7 @@ func TestFixedSizeBufferTooLarge(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("should not be able to create fixed size buffer with oversized data")
+			assert.Fail(t, "should not be able to create fixed size buffer with oversized data")
 		}
 	}()
 
@@ -118,18 +118,13 @@ func TestFixedSizeBufferTooLarge(t *testing.T) {
 func TestNilByteBuffer(t *testing.T) {
 	var buf *byteBuffer
 
-	if got := buf.bytes(); got != nil {
-		t.Errorf("bytes() = %v, want nil", got)
-	}
-	if got := buf.base64(); got != "" {
-		t.Errorf("base64() = %q, want empty string", got)
-	}
-	if got := buf.bigInt(); got.Sign() != 0 {
-		t.Errorf("bigInt() = %s, want 0", got)
-	}
-	if got, err := buf.toInt(); got != 0 || err != nil {
-		t.Errorf("toInt() = %d, %v, want 0, nil", got, err)
-	}
+	assert.Nil(t, buf.bytes())
+	assert.Equal(t, "", buf.base64())
+	assert.Equal(t, 0, buf.bigInt().Sign())
+
+	value, err := buf.toInt()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, value)
 
 	got, err := buf.MarshalJSON()
 	assert.NoError(t, err, "MarshalJSON() returned error")

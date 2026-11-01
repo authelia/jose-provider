@@ -17,12 +17,10 @@
 package josecipher
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,8 +97,7 @@ func TestVectorsAESCBC128(t *testing.T) {
 
 	enc, err := NewCBCHMAC(key, aes.NewCipher)
 	out := enc.Seal(nil, nonce, plaintext, aad)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 
@@ -151,17 +148,12 @@ func TestVectorsAESCBC256(t *testing.T) {
 
 	enc, err := NewCBCHMAC(key, aes.NewCipher)
 	out := enc.Seal(nil, nonce, plaintext, aad)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 
-	if !bytes.Equal(out[:len(out)-32], expectedCiphertext) {
-		t.Error("Ciphertext did not match, got", out[:len(out)-32], "wanted", expectedCiphertext)
-	}
-	if !bytes.Equal(out[len(out)-32:], expectedAuthtag) {
-		t.Error("Auth tag did not match, got", out[len(out)-32:], "wanted", expectedAuthtag)
-	}
+	assert.Equal(t, expectedCiphertext, out[:len(out)-32])
+	assert.Equal(t, expectedAuthtag, out[len(out)-32:])
 }
 
 func TestAESCBCRoundtrip(t *testing.T) {
@@ -229,13 +221,12 @@ func TestPadding(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		slice := make([]byte, i)
 		padded := padBuffer(slice, 16)
-		if len(padded)%16 != 0 {
-			t.Error("failed to pad slice properly", i)
+		if !assert.Equal(t, 0, len(padded)%16, "failed to pad slice properly i=%v", i) {
 			return
 		}
 		unpadded, err := unpadBuffer(padded, 16)
 		if err != nil || len(unpadded) != i {
-			t.Error("failed to unpad slice properly", i)
+			assert.Failf(t, "unexpected result", "failed to unpad slice properly i=%v", i)
 			return
 		}
 	}
@@ -305,17 +296,14 @@ func TestInvalidPaddingOpen(t *testing.T) {
 
 	// Open should fail (b/c of invalid padding, even though tag matches)
 	_, err = aead.Open(nil, nonce, ciphertext, nil)
-	if err == nil || !strings.Contains(err.Error(), "invalid padding") {
-		t.Error("no or unexpected error on open with invalid padding:", err)
-	}
+	assert.ErrorContains(t, err, "invalid padding", "no or unexpected error on open with invalid padding")
 }
 
 func TestInvalidPadding(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		slice := make([]byte, i)
 		padded := padBuffer(slice, 16)
-		if len(padded)%16 != 0 {
-			t.Error("failed to pad slice properly", i)
+		if !assert.Equal(t, 0, len(padded)%16, "failed to pad slice properly i=%v", i) {
 			return
 		}
 
@@ -328,16 +316,14 @@ func TestInvalidPadding(t *testing.T) {
 			mutated[len(mutated)-j] ^= 0xFF
 
 			_, err := unpadBuffer(mutated, 16)
-			if err == nil {
-				t.Error("unpad on invalid padding should fail", i)
+			if !assert.Error(t, err, "unpad on invalid padding should fail i=%v", i) {
 				return
 			}
 		}
 
 		// Test truncated padding
 		_, err := unpadBuffer(padded[:len(padded)-1], 16)
-		if err == nil {
-			t.Error("unpad on truncated padding should fail", i)
+		if !assert.Error(t, err, "unpad on truncated padding should fail i=%v", i) {
 			return
 		}
 	}

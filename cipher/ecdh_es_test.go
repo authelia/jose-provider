@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Example keys from JWA, Appendix C
@@ -63,7 +64,7 @@ func TestVectorECDHES(t *testing.T) {
 
 	output := DeriveECDHES("A128GCM", apuData, apvData, bobKey, &aliceKey.PublicKey, 16)
 
-	assert.Equal(t, expected, output, "%v %v %v %v", "output did not match what we expect, got", output, "wanted", expected)
+	assert.Equal(t, expected, output, "output did not match what we expect, got output=%v wanted expected=%v", output, expected)
 }
 
 func TestInvalidECPublicKey(t *testing.T) {
@@ -84,7 +85,7 @@ func TestInvalidECPublicKey(t *testing.T) {
 	}
 
 	DeriveECDHES("A128GCM", []byte{}, []byte{}, bobKey, &invalid.PublicKey, 16)
-	t.Fatal("should panic if public key was invalid")
+	require.Fail(t, "should panic if public key was invalid")
 }
 
 func BenchmarkECDHES_128(b *testing.B) {

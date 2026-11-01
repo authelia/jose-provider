@@ -62,9 +62,8 @@ func (parsed rawHeader) getJWK() (*JSONWebKey, error) {
 func TestPrivateEPKRejected(t *testing.T) {
 	epk := json.RawMessage(`{"kty":"EC","crv":"P-256","x":"AQAB","y":"AQAB","d":"AQAB"}`)
 	headers := rawHeader{headerEPK: &epk}
-	if _, err := headers.getEPK(); err == nil || !strings.Contains(err.Error(), "JWK contains private parameters") {
-		t.Errorf("expected private parameters error, got %v", err)
-	}
+	_, err := headers.getEPK()
+	assert.ErrorContains(t, err, "JWK contains private parameters", "expected private parameters error")
 }
 
 func TestMergeHeaders(t *testing.T) {
@@ -85,8 +84,7 @@ func TestMergeHeaders(t *testing.T) {
 		"new":   `"src"`,
 	} {
 		v, ok := dst[k]
-		if !ok {
-			t.Errorf("merge() dropped %q, want %s", k, want)
+		if !assert.True(t, ok, "merge() dropped %q, want %s", k, want) {
 			continue
 		}
 		// A JSON null is stored as a present key with a nil value.
@@ -209,9 +207,9 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			_, err = parsed.Signatures[0].Protected.Certificates(opts)
 			switch {
 			case tc.wantErr == "" && err != nil:
-				t.Errorf("Certificates() error = %v, want nil", err)
+				assert.Failf(t, "unexpected result", "Certificates() error = %v, want nil", err)
 			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
-				t.Errorf("Certificates() error = %v, want error containing %q", err, tc.wantErr)
+				assert.Failf(t, "unexpected result", "Certificates() error = %v, want error containing %q", err, tc.wantErr)
 			}
 		})
 	}
@@ -244,23 +242,20 @@ func TestParseProtectedHeader(t *testing.T) {
 			header, err := parseProtectedHeader(tc.in)
 			if tc.wantErr {
 				if err == nil || header != nil {
-					t.Fatalf("got header %v and error %v, want only an error", header, err)
+					require.Failf(t, "unexpected result", "got header %v and error %v, want only an error", header, err)
 				}
 				return
 			}
 			require.NoError(t, err, "unexpected error")
 			if tc.wantNil {
-				if header != nil {
-					t.Errorf("expected nil header, got %v", header)
-				}
+				assert.Nil(t, header, "expected nil header, got %v", header)
 				return
 			}
 			if header == nil || *header == nil {
-				t.Fatalf("expected non-nil header map, got %v", header)
+				require.Failf(t, "unexpected result", "expected non-nil header map, got %v", header)
 			}
-			if alg := string(header.getAlgorithm()); alg != tc.wantAlg {
-				t.Errorf("expected alg %q, got %q", tc.wantAlg, alg)
-			}
+			alg := string(header.getAlgorithm())
+			assert.Equal(t, tc.wantAlg, alg, "expected alg %q, got %q", tc.wantAlg, alg)
 		})
 	}
 }

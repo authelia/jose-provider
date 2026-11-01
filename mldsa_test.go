@@ -27,7 +27,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -45,21 +44,18 @@ func TestMLDSAAlgParamsRoundtrip(t *testing.T) {
 		require.True(t, ok, "mldsaParamsFor(%s) = _, false; want true", alg)
 		got, ok := mldsaAlgFor(params)
 		if !ok || got != alg {
-			t.Errorf("mldsaAlgFor(%v) = %q, %v; want %q, true", params, got, ok, alg)
+			assert.Failf(t, "unexpected result", "mldsaAlgFor(%v) = %q, %v; want %q, true", params, got, ok, alg)
 		}
 	}
 }
 
 func TestMLDSAAlgParamsRejectsUnknown(t *testing.T) {
-	if _, ok := mldsaParamsFor(EdDSA); ok {
-		t.Error("mldsaParamsFor(EdDSA) = _, true; want false")
-	}
-	if _, ok := mldsaParamsFor(SignatureAlgorithm("ML-DSA-99")); ok {
-		t.Error(`mldsaParamsFor("ML-DSA-99") = _, true; want false`)
-	}
-	if _, ok := mldsaAlgFor(mldsa.Parameters{}); ok {
-		t.Error("mldsaAlgFor(zero Parameters) = _, true; want false")
-	}
+	_, ok := mldsaParamsFor(EdDSA)
+	assert.False(t, ok, "mldsaParamsFor(EdDSA) = _, true; want false")
+	_, ok = mldsaParamsFor(SignatureAlgorithm("ML-DSA-99"))
+	assert.False(t, ok, "mldsaParamsFor(\"ML-DSA-99\") = _, true; want false")
+	_, ok = mldsaAlgFor(mldsa.Parameters{})
+	assert.False(t, ok, "mldsaAlgFor(zero Parameters) = _, true; want false")
 }
 
 func TestMLDSAKeyPredicates(t *testing.T) {
@@ -80,9 +76,8 @@ func TestMLDSAKeyPredicates(t *testing.T) {
 		assert.True(t, got.Equal(priv.PublicKey()), "%s: Public() returned the wrong public key", alg)
 
 		// Public() on an already-public key is the identity.
-		if again := pubJWK.Public(); !again.IsPublic() {
-			t.Errorf("%s: Public() on a public key did not round-trip", alg)
-		}
+		again := pubJWK.Public()
+		assert.True(t, again.IsPublic(), "%s: Public() on a public key did not round-trip", alg)
 	}
 }
 
@@ -217,15 +212,14 @@ func TestMLDSAVerifyPayloadRejectsMismatchedAlg(t *testing.T) {
 
 	verifier, ok, err := mldsaVerifier(priv.PublicKey())
 	if !ok || err != nil {
-		t.Fatalf("mldsaVerifier(pub) = _, %v, %v; want _, true, nil", ok, err)
+		require.Failf(t, "unexpected result", "mldsaVerifier(pub) = _, %v, %v; want _, true, nil", ok, err)
 	}
 
 	err = verifier.verifyPayload(payload, sig, ML_DSA_65)
 	require.NoError(t, err, "verifyPayload(ML_DSA_65) failed on a matching key/signature pair")
 
-	if err := verifier.verifyPayload(payload, sig, ML_DSA_44); !errors.Is(err, ErrUnsupportedAlgorithm) {
-		t.Errorf("verifyPayload(ML_DSA_44) = %v; want ErrUnsupportedAlgorithm", err)
-	}
+	err = verifier.verifyPayload(payload, sig, ML_DSA_44)
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "verifyPayload(ML_DSA_44) = %v; want ErrUnsupportedAlgorithm", err)
 }
 
 func TestMLDSASignPayloadRejectsMismatchedAlg(t *testing.T) {
@@ -237,9 +231,8 @@ func TestMLDSASignPayloadRejectsMismatchedAlg(t *testing.T) {
 	_, err := signer.signPayload(payload, ML_DSA_65)
 	require.NoError(t, err, "signPayload(ML_DSA_65) failed on a matching signer")
 
-	if _, err := signer.signPayload(payload, ML_DSA_44); !errors.Is(err, ErrUnsupportedAlgorithm) {
-		t.Errorf("signPayload(ML_DSA_44) = _, %v; want ErrUnsupportedAlgorithm", err)
-	}
+	_, err = signer.signPayload(payload, ML_DSA_44)
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "signPayload(ML_DSA_44) = _, %v; want ErrUnsupportedAlgorithm", err)
 }
 
 func TestMLDSASignWithJSONWebKey(t *testing.T) {
@@ -255,9 +248,8 @@ func TestMLDSASignWithJSONWebKey(t *testing.T) {
 		require.NoError(t, err, "%s: CompactSerialize", alg)
 		parsed, err := ParseSigned(serialized, []SignatureAlgorithm{alg})
 		require.NoError(t, err, "%s: ParseSigned", alg)
-		if kid := parsed.Signatures[0].Header.KeyID; kid != "test-kid" {
-			t.Errorf("%s: KeyID = %q; want %q", alg, kid, "test-kid")
-		}
+		kid := parsed.Signatures[0].Header.KeyID
+		assert.Equal(t, "test-kid", kid, "%s: KeyID = %q; want %q", alg, kid, "test-kid")
 		_, err = parsed.Verify(&JSONWebKey{Key: priv.PublicKey()})
 		assert.NoError(t, err, "%s: Verify with JSONWebKey", alg)
 	}
@@ -286,27 +278,25 @@ func TestMLDSAMarshalPublicJWK(t *testing.T) {
 		err = json.Unmarshal(data, &raw)
 		require.NoError(t, err, "%s: unmarshal into map", alg)
 		if raw["kty"] != "AKP" {
-			t.Errorf("%s: kty = %v; want AKP", alg, raw["kty"])
+			assert.Failf(t, "unexpected result", "%s: kty = %v; want AKP", alg, raw["kty"])
 		}
 
 		// RFC 9964 makes alg REQUIRED, and it is derived from the key itself.
 		if raw["alg"] != string(alg) {
-			t.Errorf("%s: alg = %v; want %s", alg, raw["alg"], alg)
+			assert.Failf(t, "unexpected result", "%s: alg = %v; want %s", alg, raw["alg"], alg)
 		}
-		if _, ok := raw["priv"]; ok {
-			t.Errorf("%s: public JWK contains priv", alg)
-		}
+		_, ok := raw["priv"]
+		assert.False(t, ok, "%s: public JWK contains priv", alg)
 		pub, err := base64.RawURLEncoding.DecodeString(raw["pub"].(string))
 		require.NoError(t, err, "%s: pub is not raw base64url", alg)
 		if len(pub) != mldsaExpectedPubSize[alg] {
-			t.Errorf("%s: len(pub) = %d; want %d", alg, len(pub), mldsaExpectedPubSize[alg])
+			assert.Failf(t, "unexpected result", "%s: len(pub) = %d; want %d", alg, len(pub), mldsaExpectedPubSize[alg])
 		}
 
 		// Nothing from the EC/RSA/OKP vocabulary belongs on an AKP key.
 		for _, member := range []string{"crv", "x", "y", "d", "n", "e", "k"} {
-			if _, ok := raw[member]; ok {
-				t.Errorf("%s: AKP JWK unexpectedly contains %q", alg, member)
-			}
+			_, ok := raw[member]
+			assert.False(t, ok, "%s: AKP JWK unexpectedly contains %q", alg, member)
 		}
 	}
 }
@@ -322,7 +312,7 @@ func TestMLDSAMarshalPrivateJWK(t *testing.T) {
 		err = json.Unmarshal(data, &raw)
 		require.NoError(t, err, "%s: unmarshal into map", alg)
 		if raw["kty"] != "AKP" || raw["alg"] != string(alg) {
-			t.Errorf("%s: kty/alg = %v/%v; want AKP/%s", alg, raw["kty"], raw["alg"], alg)
+			assert.Failf(t, "unexpected result", "%s: kty/alg = %v/%v; want AKP/%s", alg, raw["kty"], raw["alg"], alg)
 		}
 
 		// RFC 9964: priv MUST be the seed and MUST be 32 bytes.
@@ -358,9 +348,8 @@ func TestMLDSAEmbedJWKWithContradictoryAlgorithm(t *testing.T) {
 	priv := mldsaTestKey(t, ML_DSA_44)
 	signingKey := JSONWebKey{Key: priv, Algorithm: string(ML_DSA_87)}
 
-	if _, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: signingKey}, &SignerOptions{EmbedJWK: true}); !errors.Is(err, ErrUnsuitableKey) {
-		t.Errorf("NewSigner: got %v, want %v", err, ErrUnsuitableKey)
-	}
+	_, err := NewSigner(SigningKey{Algorithm: ML_DSA_44, Key: signingKey}, &SignerOptions{EmbedJWK: true})
+	assert.ErrorIs(t, err, ErrUnsuitableKey, "NewSigner: got %v, want %v", err, ErrUnsuitableKey)
 }
 
 func TestMLDSAMarshalPreservesOtherKtyAlgHandling(t *testing.T) {
@@ -369,9 +358,7 @@ func TestMLDSAMarshalPreservesOtherKtyAlgHandling(t *testing.T) {
 	var raw map[string]any
 	err = json.Unmarshal(data, &raw)
 	require.NoError(t, err, "unmarshal")
-	if raw["alg"] != "EdDSA" {
-		t.Errorf("alg = %v; want EdDSA", raw["alg"])
-	}
+	assert.Equal(t, "EdDSA", raw["alg"])
 }
 
 func TestMLDSAJWKRoundtrip(t *testing.T) {
@@ -393,7 +380,7 @@ func TestMLDSAJWKRoundtrip(t *testing.T) {
 				err = parsed.UnmarshalJSON(data)
 				require.NoError(t, err, "UnmarshalJSON")
 				if parsed.KeyID != "kid-1" || parsed.Use != "sig" || parsed.Algorithm != string(alg) {
-					t.Errorf("metadata lost: kid=%q use=%q alg=%q", parsed.KeyID, parsed.Use, parsed.Algorithm)
+					assert.Failf(t, "unexpected result", "metadata lost: kid=%q use=%q alg=%q", parsed.KeyID, parsed.Use, parsed.Algorithm)
 				}
 
 				switch want := tc.key.(type) {
@@ -524,7 +511,7 @@ func TestMLDSAThumbprint(t *testing.T) {
 		got, err := (&JSONWebKey{Key: priv.PublicKey()}).Thumbprint(crypto.SHA256)
 		require.NoError(t, err, "%s: Thumbprint", alg)
 		if !bytes.Equal(got, want[:]) {
-			t.Errorf("%s: thumbprint = %x; want %x", alg, got, want[:])
+			assert.Failf(t, "unexpected result", "%s: thumbprint = %x; want %x", alg, got, want[:])
 		}
 
 		fromPriv, err := (&JSONWebKey{Key: priv}).Thumbprint(crypto.SHA256)
@@ -539,9 +526,8 @@ func TestMLDSAThumbprintDiffersByAlg(t *testing.T) {
 		priv := mldsaTestKey(t, alg)
 		tp, err := (&JSONWebKey{Key: priv.PublicKey()}).Thumbprint(crypto.SHA256)
 		require.NoError(t, err, "%s: Thumbprint", alg)
-		if prev, ok := seen[string(tp)]; ok {
-			t.Errorf("%s collided with %s", alg, prev)
-		}
+		prev, ok := seen[string(tp)]
+		assert.False(t, ok, "%s collided with %s", alg, prev)
 		seen[string(tp)] = alg
 
 		withoutAlg := sha256.Sum256([]byte(fmt.Sprintf(

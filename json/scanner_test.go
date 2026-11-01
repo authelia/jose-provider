@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"math"
 	"math/rand"
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func indentNewlines(s string) string {
@@ -41,9 +43,8 @@ func TestValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			if ok := Valid([]byte(tt.data)); ok != tt.ok {
-				t.Errorf("%s: Valid(`%s`) = %v, want %v", tt.Where, tt.data, ok, tt.ok)
-			}
+			ok := Valid([]byte(tt.data))
+			assert.Equal(t, tt.ok, ok, "%s: Valid(`%s`) = %v, want %v", tt.Where, tt.data, ok, tt.ok)
 		})
 	}
 }
@@ -79,30 +80,30 @@ func TestCompactAndIndent(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			buf.Reset()
 			if err := Compact(&buf, []byte(tt.compact)); err != nil {
-				t.Errorf("%s: Compact error: %v", tt.Where, err)
+				assert.Failf(t, "unexpected result", "%s: Compact error: %v", tt.Where, err)
 			} else if got := buf.String(); got != tt.compact {
-				t.Errorf("%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
+				assert.Failf(t, "unexpected result", "%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
 			}
 
 			buf.Reset()
 			if err := Compact(&buf, []byte(tt.indent)); err != nil {
-				t.Errorf("%s: Compact error: %v", tt.Where, err)
+				assert.Failf(t, "unexpected result", "%s: Compact error: %v", tt.Where, err)
 			} else if got := buf.String(); got != tt.compact {
-				t.Errorf("%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
+				assert.Failf(t, "unexpected result", "%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
 			}
 
 			buf.Reset()
 			if err := Indent(&buf, []byte(tt.indent), "", "\t"); err != nil {
-				t.Errorf("%s: Indent error: %v", tt.Where, err)
+				assert.Failf(t, "unexpected result", "%s: Indent error: %v", tt.Where, err)
 			} else if got := buf.String(); got != tt.indent {
-				t.Errorf("%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.indent))
+				assert.Failf(t, "unexpected result", "%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.indent))
 			}
 
 			buf.Reset()
 			if err := Indent(&buf, []byte(tt.compact), "", "\t"); err != nil {
-				t.Errorf("%s: Indent error: %v", tt.Where, err)
+				assert.Failf(t, "unexpected result", "%s: Indent error: %v", tt.Where, err)
 			} else if got := buf.String(); got != strings.TrimRight(tt.indent, " \n\r\t") {
-				t.Errorf("%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.indent))
+				assert.Failf(t, "unexpected result", "%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.indent))
 			}
 		})
 	}
@@ -122,9 +123,9 @@ func TestCompactSeparators(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			var buf bytes.Buffer
 			if err := Compact(&buf, []byte(tt.in)); err != nil {
-				t.Errorf("%s: Compact error: %v", tt.Where, err)
+				assert.Failf(t, "unexpected result", "%s: Compact error: %v", tt.Where, err)
 			} else if got := buf.String(); got != tt.compact {
-				t.Errorf("%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
+				assert.Failf(t, "unexpected result", "%s: Compact:\n\tgot:  %s\n\twant: %s", tt.Where, indentNewlines(got), indentNewlines(tt.compact))
 			}
 		})
 	}
@@ -135,12 +136,10 @@ func TestCompactSeparators(t *testing.T) {
 func TestCompactBig(t *testing.T) {
 	initBig()
 	var buf bytes.Buffer
-	if err := Compact(&buf, jsonBig); err != nil {
-		t.Fatalf("Compact error: %v", err)
-	}
+	err := Compact(&buf, jsonBig)
+	require.NoError(t, err, "Compact error")
 	b := buf.Bytes()
-	if !bytes.Equal(b, jsonBig) {
-		t.Error("Compact:")
+	if !assert.Equal(t, jsonBig, b, "Compact") {
 		diff(t, b, jsonBig)
 		return
 	}
@@ -150,36 +149,31 @@ func TestIndentBig(t *testing.T) {
 	t.Parallel()
 	initBig()
 	var buf bytes.Buffer
-	if err := Indent(&buf, jsonBig, "", "\t"); err != nil {
-		t.Fatalf("Indent error: %v", err)
-	}
+	err := Indent(&buf, jsonBig, "", "\t")
+	require.NoError(t, err, "Indent error")
 	b := buf.Bytes()
 	if len(b) == len(jsonBig) {
 		// jsonBig is compact (no unnecessary spaces);
 		// indenting should make it bigger
-		t.Fatalf("Indent did not expand the input")
+		require.Failf(t, "unexpected result", "Indent did not expand the input")
 	}
 
 	// should be idempotent
 	var buf1 bytes.Buffer
-	if err := Indent(&buf1, b, "", "\t"); err != nil {
-		t.Fatalf("Indent error: %v", err)
-	}
+	err = Indent(&buf1, b, "", "\t")
+	require.NoError(t, err, "Indent error")
 	b1 := buf1.Bytes()
-	if !bytes.Equal(b1, b) {
-		t.Error("Indent(Indent(jsonBig)) != Indent(jsonBig):")
+	if !assert.Equal(t, b, b1, "Indent(Indent(jsonBig)) != Indent(jsonBig)") {
 		diff(t, b1, b)
 		return
 	}
 
 	// should get back to original
 	buf1.Reset()
-	if err := Compact(&buf1, b); err != nil {
-		t.Fatalf("Compact error: %v", err)
-	}
+	err = Compact(&buf1, b)
+	require.NoError(t, err, "Compact error")
 	b1 = buf1.Bytes()
-	if !bytes.Equal(b1, jsonBig) {
-		t.Error("Compact(Indent(jsonBig)) != jsonBig:")
+	if !assert.Equal(t, jsonBig, b1, "Compact(Indent(jsonBig)) != jsonBig") {
 		diff(t, b1, jsonBig)
 		return
 	}
@@ -199,9 +193,7 @@ func TestIndentErrors(t *testing.T) {
 			slice := make([]uint8, 0)
 			buf := bytes.NewBuffer(slice)
 			if err := Indent(buf, []uint8(tt.in), "", ""); err != nil {
-				if !reflect.DeepEqual(err, tt.err) {
-					t.Fatalf("%s: Indent error:\n\tgot:  %v\n\twant: %v", tt.Where, err, tt.err)
-				}
+				require.Equal(t, tt.err, err, "%s: Indent error:\n\tgot:  %v\n\twant: %v", tt.Where, err, tt.err)
 			}
 		})
 	}
@@ -215,7 +207,7 @@ func diff(t *testing.T, a, b []byte) {
 			if j < 0 {
 				j = 0
 			}
-			t.Errorf("diverge at %d: «%s» vs «%s»", i, trim(a[j:]), trim(b[j:]))
+			assert.Failf(t, "unexpected result", "diverge at %d: «%s» vs «%s»", i, trim(a[j:]), trim(b[j:]))
 			return
 		}
 	}

@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,7 +50,7 @@ func TestRoundtripsJWSCryptoSigner(t *testing.T) {
 
 		for i, serializer := range serializers {
 			err := roundtripJWS(alg, serializer, Opaque(signingKey.(crypto.Signer)), verificationKey)
-			assert.NoError(t, err, "%v %v", alg, i)
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 		}
 	}
 }
@@ -99,9 +98,8 @@ func TestOpaqueRefusesAnRSAKeyTheVerifierRejects(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	require.NoError(t, err)
 
-	if _, err = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: Opaque(key)}, nil); !errors.Is(err, jose.ErrInvalidKeySize) {
-		t.Errorf("NewSigner: got %v, want %v", err, jose.ErrInvalidKeySize)
-	}
+	_, err = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: Opaque(key)}, nil)
+	assert.ErrorIs(t, err, jose.ErrInvalidKeySize, "NewSigner: got %v, want %v", err, jose.ErrInvalidKeySize)
 }
 
 type staticNonceSource string
@@ -201,9 +199,8 @@ func (fakeSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([
 }
 
 func TestSignPayloadRejectsTypedNilECDSAKey(t *testing.T) {
-	if _, err := Opaque(nilECDSASigner{}).SignPayload([]byte("payload"), jose.ES256); !errors.Is(err, jose.ErrUnsupportedAlgorithm) {
-		t.Fatalf("SignPayload() error = %v; want %v", err, jose.ErrUnsupportedAlgorithm)
-	}
+	_, err := Opaque(nilECDSASigner{}).SignPayload([]byte("payload"), jose.ES256)
+	require.ErrorIs(t, err, jose.ErrUnsupportedAlgorithm, "SignPayload() error = %v; want %v", err, jose.ErrUnsupportedAlgorithm)
 }
 
 func Test_cryptoSigner_Algs(t *testing.T) {
@@ -249,9 +246,8 @@ func Test_cryptoSigner_Algs(t *testing.T) {
 			cs := &cryptoSigner{
 				signer: tt.fields.signer,
 			}
-			if got := cs.Algs(); !reflect.DeepEqual(tt.want, got) {
-				t.Errorf("cryptoSigner.Algs() got = %v, want %v", got, tt.want)
-			}
+			got := cs.Algs()
+			assert.Equal(t, got, tt.want, "cryptoSigner.Algs() got = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -313,9 +309,8 @@ func TestSignPayloadRejectsAlgorithmTheKeyDoesNotSupport(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := Opaque(tc.key).SignPayload([]byte("payload"), tc.alg); !errors.Is(err, jose.ErrUnsupportedAlgorithm) {
-				t.Fatalf("expected ErrUnsupportedAlgorithm, got %v", err)
-			}
+			_, err := Opaque(tc.key).SignPayload([]byte("payload"), tc.alg)
+			require.ErrorIs(t, err, jose.ErrUnsupportedAlgorithm, "expected ErrUnsupportedAlgorithm, got %v", err)
 		})
 	}
 }

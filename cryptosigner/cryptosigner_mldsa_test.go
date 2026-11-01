@@ -48,7 +48,7 @@ func TestMLDSAOpaqueRoundtrip(t *testing.T) {
 
 			algs := signer.Algs()
 			if len(algs) != 1 || algs[0] != tc.alg {
-				t.Fatalf("Algs() = %v; want [%s]", algs, tc.alg)
+				require.Failf(t, "unexpected result", "Algs() = %v; want [%s]", algs, tc.alg)
 			}
 
 			joseSigner, err := jose.NewSigner(jose.SigningKey{Algorithm: tc.alg, Key: signer}, nil)
@@ -87,9 +87,8 @@ func TestMLDSAOpaqueAlgsDoesNotPanic(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			signer := Opaque(fakeMLDSASigner{pub: tc.pub})
-			if algs := signer.Algs(); len(algs) != 0 {
-				t.Errorf("Algs() = %v; want empty", algs)
-			}
+			algs := signer.Algs()
+			assert.Empty(t, algs, "Algs() = %v; want empty", algs)
 		})
 	}
 }
