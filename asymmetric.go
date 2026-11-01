@@ -205,7 +205,7 @@ func newECDHRecipient(keyAlg KeyAlgorithm, publicKey *ecdsa.PublicKey) (recipien
 		return recipientKeyInfo{}, ErrUnsupportedAlgorithm
 	}
 
-	if publicKey == nil {
+	if publicKey == nil || publicKey.X == nil || publicKey.Y == nil {
 		return recipientKeyInfo{}, errors.New("invalid public key")
 	}
 
@@ -514,7 +514,7 @@ func (ctx ecDecrypterSigner) decryptKey(headers rawHeader, recipient *recipientI
 		return nil, errors.New("go-jose/go-jose: missing recipient")
 	}
 
-	if ctx.privateKey == nil || ctx.privateKey.D == nil {
+	if ctx.privateKey == nil || ctx.privateKey.D == nil || ctx.privateKey.X == nil || ctx.privateKey.Y == nil {
 		return nil, errors.New("go-jose/go-jose: invalid EC private key")
 	}
 
@@ -693,7 +693,7 @@ func (ctx ecEncrypterVerifier) verifyPayload(payload []byte, signature []byte, a
 		return ErrUnsupportedAlgorithm
 	}
 
-	if ctx.publicKey == nil {
+	if ctx.publicKey == nil || ctx.publicKey.X == nil || ctx.publicKey.Y == nil {
 		return ErrUnsupportedKeyType
 	}
 

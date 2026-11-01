@@ -17,7 +17,6 @@
 package jose
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -26,6 +25,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type signWrapper struct {
@@ -162,28 +164,20 @@ func TestRoundtripsJWSOpaque(t *testing.T) {
 			vw := makeOpaqueVerifier(t, []any{verificationKey}, alg)
 
 			err := RoundtripJWS(alg, serializer, corrupter, sw, verificationKey, "test_nonce")
-			if err != nil {
-				t.Error(err, alg, i)
-			}
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			err = RoundtripJWS(alg, serializer, corrupter, signingKey, vw, "test_nonce")
-			if err != nil {
-				t.Error(err, alg, i)
-			}
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			err = RoundtripJWS(alg, serializer, corrupter, sw, vw, "test_nonce")
-			if err != nil {
-				t.Error(err, alg, i)
-			}
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 		}
 	}
 }
 
 func TestOpaqueSignerRefusesAPublicKeyTheVerifierRejects(t *testing.T) {
 	smallRSA, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	var lowOrder ed25519.PublicKey
 	for k := range weakEd25519PublicKeys {
@@ -212,12 +206,10 @@ func TestOpaqueSignerRefusesAPublicKeyTheVerifierRejects(t *testing.T) {
 			sw := &signWrapper{pk: &JSONWebKey{Key: tc.key}, algs: []SignatureAlgorithm{tc.alg}}
 
 			_, err := NewSigner(SigningKey{Algorithm: tc.alg, Key: sw}, nil)
-			if err == nil {
-				t.Fatal("NewSigner accepted a public key the verifier rejects")
-			}
+			require.Error(t, err, "NewSigner accepted a public key the verifier rejects")
 
 			if tc.err != nil && !errors.Is(err, tc.err) {
-				t.Errorf("NewSigner: got %v, want %v", err, tc.err)
+				assert.Failf(t, "unexpected result", "NewSigner: got %v, want %v", err, tc.err)
 			}
 		})
 	}
@@ -227,33 +219,25 @@ func TestOpaqueSignerRefusesARotatedPublicKeyTheVerifierRejects(t *testing.T) {
 	sw := makeOpaqueSigner(t, rsaTestKey, RS256)
 
 	signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: sw}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	smallRSA, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	sw.pk = &JSONWebKey{Key: &smallRSA.PublicKey}
 
-	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrInvalidKeySize) {
-		t.Errorf("Sign: got %v, want %v", err, ErrInvalidKeySize)
-	}
+	_, err = signer.Sign([]byte("payload"))
+	assert.ErrorIs(t, err, ErrInvalidKeySize, "Sign: got %v, want %v", err, ErrInvalidKeySize)
 
 	sw.pk = &JSONWebKey{Key: ed25519PublicKey}
 
-	if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrUnsupportedAlgorithm) {
-		t.Errorf("Sign: got %v, want %v", err, ErrUnsupportedAlgorithm)
-	}
+	_, err = signer.Sign([]byte("payload"))
+	assert.ErrorIs(t, err, ErrUnsupportedAlgorithm, "Sign: got %v, want %v", err, ErrUnsupportedAlgorithm)
 }
 
 func makeOpaqueSigner(t *testing.T, signingKey any, alg SignatureAlgorithm) *signWrapper {
 	ri, err := makeJWSRecipient(alg, signingKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return &signWrapper{
 		wrapped: ri.signer,
 		algs:    []SignatureAlgorithm{alg},
@@ -265,9 +249,7 @@ func makeOpaqueVerifier(t *testing.T, verificationKey []any, alg SignatureAlgori
 	verifiers := []payloadVerifier{}
 	for _, vk := range verificationKey {
 		verifier, err := newVerifier(vk)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		verifiers = append(verifiers, verifier)
 	}
 	return &verifyWrapper{wrapped: verifiers}
@@ -289,25 +271,17 @@ func TestRoundtripsJWEOpaque(t *testing.T) {
 				kd := makeOpaqueKeyDecrypter(t, rsaTestKey, alg)
 
 				encrypter, err := NewEncrypter(enc, Recipient{Algorithm: alg, Key: ke}, nil)
-				if err != nil {
-					t.Fatal(err, alg, enc, i)
-				}
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
 
 				plaintext := []byte("foo bar baz")
 				jwe, err := encrypter.Encrypt(plaintext)
-				if err != nil {
-					t.Fatal(err, alg, enc, i)
-				}
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
 
 				jwe = jweSerialize(t, serializer, jwe, kd, alg, enc)
 
 				decrypted, err := jwe.Decrypt(kd)
-				if err != nil {
-					t.Fatal(err, alg, enc, i)
-				}
-				if !bytes.Equal(decrypted, plaintext) {
-					t.Errorf("alg %s enc %s serializer %d: got %q, want %q", alg, enc, i, decrypted, plaintext)
-				}
+				require.NoError(t, err, "alg=%v enc=%v i=%v", alg, enc, i)
+				assert.Equal(t, plaintext, decrypted, "alg %s enc %s serializer %d: got %q, want %q", alg, enc, i, decrypted, plaintext)
 			}
 		}
 	}
@@ -315,9 +289,7 @@ func TestRoundtripsJWEOpaque(t *testing.T) {
 
 func makeOpaqueKeyEncrypter(t *testing.T, signingKey any, alg KeyAlgorithm, kid string) *keyEncryptWrapper {
 	rki, err := makeJWERecipient(alg, signingKey)
-	if err != nil {
-		t.Fatal(err, alg)
-	}
+	require.NoError(t, err, "alg=%v", alg)
 	return &keyEncryptWrapper{
 		wrapped: rki.keyEncrypter,
 		algs:    []KeyAlgorithm{alg},
@@ -327,9 +299,7 @@ func makeOpaqueKeyEncrypter(t *testing.T, signingKey any, alg KeyAlgorithm, kid 
 
 func makeOpaqueKeyDecrypter(t *testing.T, decryptionKey any, alg KeyAlgorithm) *keyDecryptWrapper {
 	kd, err := newDecrypter(decryptionKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	return &keyDecryptWrapper{
 		wrapped: kd,
@@ -358,18 +328,13 @@ func TestOpaqueSignerKeyRotation(t *testing.T) {
 				SigningKey{Algorithm: alg, Key: sw},
 				&SignerOptions{NonceSource: staticNonceSource("test_nonce")},
 			)
-			if err != nil {
-				t.Fatal(err, alg, i)
-			}
+			require.NoError(t, err, "alg=%v i=%v", alg, i)
 
 			jws1, err := signer.Sign([]byte("foo bar baz"))
-			if err != nil {
-				t.Fatal(err, alg, i)
-			}
+			require.NoError(t, err, "alg=%v i=%v", alg, i)
 			jws1 = rtSerialize(t, serializer, jws1, vw, alg)
-			if kid := jws1.Signatures[0].Protected.KeyID; kid != "first" {
-				t.Errorf("expected kid %q but got %q", "first", kid)
-			}
+			kid := jws1.Signatures[0].Protected.KeyID
+			assert.Equal(t, "first", kid, "expected kid %q but got %q", "first", kid)
 
 			swNext := makeOpaqueSigner(t, sk2, alg)
 			swNext.pk.KeyID = "next"
@@ -377,29 +342,21 @@ func TestOpaqueSignerKeyRotation(t *testing.T) {
 			sw.pk = swNext.pk
 
 			jws2, err := signer.Sign([]byte("foo bar baz next"))
-			if err != nil {
-				t.Error(err, alg, i)
-			}
+			assert.NoError(t, err, "alg=%v i=%v", alg, i)
 			jws2 = rtSerialize(t, serializer, jws2, vw, alg)
-			if kid := jws2.Signatures[0].Protected.KeyID; kid != "next" {
-				t.Errorf("expected kid %q but got %q", "next", kid)
-			}
+			kid = jws2.Signatures[0].Protected.KeyID
+			assert.Equal(t, "next", kid, "expected kid %q but got %q", "next", kid)
 		}
 	}
 }
 
 func rtSerialize(t *testing.T, serializer func(*JSONWebSignature) (string, error), sig *JSONWebSignature, vk any, alg SignatureAlgorithm) *JSONWebSignature {
 	b, err := serializer(sig)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sig, err = ParseSigned(b, []SignatureAlgorithm{alg})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := sig.Verify(vk); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = sig.Verify(vk)
+	require.NoError(t, err)
 	return sig
 }
 
@@ -411,16 +368,11 @@ func jweSerialize(t *testing.T,
 	enc ContentEncryption,
 ) *JSONWebEncryption {
 	b, err := serializer(jwe)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	jwe, err = ParseEncrypted(b, []KeyAlgorithm{alg}, []ContentEncryption{enc})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := jwe.Decrypt(d); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = jwe.Decrypt(d)
+	require.NoError(t, err)
 	return jwe
 }
 
@@ -448,7 +400,5 @@ func TestOpaqueSignerNonPublic(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	var os OpaqueSigner = badSigner{key}
 	_, err := NewSigner(SigningKey{Algorithm: ES256, Key: os}, &SignerOptions{EmbedJWK: true})
-	if !errors.Is(err, ErrNotPublic) {
-		t.Fatal("Expected ErrNotPublic when using BadSigner")
-	}
+	require.ErrorIs(t, err, ErrNotPublic, "Expected ErrNotPublic when using BadSigner")
 }

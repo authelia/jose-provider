@@ -24,19 +24,18 @@ import (
 	"crypto/sha256"
 	"io"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInvalidSymmetricAlgorithms(t *testing.T) {
 	_, err := newSymmetricRecipient("XYZ", []byte{})
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Same(t, ErrUnsupportedAlgorithm, err, "should not accept invalid algorithm")
 
 	enc := &symmetricKeyCipher{}
 	_, err = enc.encryptKey([]byte{}, "XYZ")
-	if err != ErrUnsupportedAlgorithm {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Same(t, ErrUnsupportedAlgorithm, err, "should not accept invalid algorithm")
 }
 
 func TestAeadErrors(t *testing.T) {
@@ -49,42 +48,29 @@ func TestAeadErrors(t *testing.T) {
 	}
 
 	parts, err := aead.encrypt([]byte{}, []byte{}, []byte{})
-	if err != ErrCryptoFailure {
-		t.Error("should handle aead failure")
-	}
+	assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 
 	_, err = aead.decrypt([]byte{}, []byte{}, parts)
-	if err != ErrCryptoFailure {
-		t.Error("should handle aead failure")
-	}
+	assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 }
 
 func TestInvalidKey(t *testing.T) {
 	gcm := newAESGCM(16).(*aeadContentCipher)
 	_, err := gcm.getAead([]byte{})
-	if err == nil {
-		t.Error("should not accept invalid key")
-	}
+	assert.Error(t, err, "should not accept invalid key")
 }
 
 func TestStaticKeyGen(t *testing.T) {
 	key := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		t.Fatal(err)
-	}
+	_, err := io.ReadFull(rand.Reader, key)
+	require.NoError(t, err)
 
 	gen := &staticKeyGenerator{key: key}
-	if gen.keySize() != len(key) {
-		t.Error("static key generator reports incorrect size")
-	}
+	assert.Equal(t, len(key), gen.keySize(), "static key generator reports incorrect size")
 
 	generated, _, err := gen.genKey()
-	if err != nil {
-		t.Error("static key generator should always succeed", err)
-	}
-	if !bytes.Equal(generated, key) {
-		t.Error("static key generator returns different data")
-	}
+	assert.NoError(t, err, "static key generator should always succeed")
+	assert.Equal(t, key, generated, "static key generator returns different data")
 }
 
 func TestAeadInvalidInput(t *testing.T) {
@@ -96,9 +82,7 @@ func TestAeadInvalidInput(t *testing.T) {
 	for _, tc := range tt {
 		aead := newAESGCM(16).(*aeadContentCipher)
 		_, err := aead.decrypt(sample, []byte{}, &tc)
-		if err != ErrCryptoFailure {
-			t.Error("should handle aead failure")
-		}
+		assert.Same(t, ErrCryptoFailure, err, "should handle aead failure")
 	}
 }
 
@@ -136,17 +120,12 @@ func TestVectorsAESGCM(t *testing.T) {
 	enc := newAESGCM(32)
 	key, _, _ := randomKeyGenerator{size: 32}.genKey()
 	out, err := enc.encrypt(key, aad, plaintext)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 
-	if !bytes.Equal(out.ciphertext, expectedCiphertext) {
-		t.Error("Ciphertext did not match")
-	}
-	if !bytes.Equal(out.tag, expectedAuthtag) {
-		t.Error("Auth tag did not match")
-	}
+	assert.Equal(t, expectedCiphertext, out.ciphertext, "Ciphertext did not match")
+	assert.Equal(t, expectedAuthtag, out.tag, "Auth tag did not match")
 }
 
 func TestVectorPBES2_HS256A_128KW(t *testing.T) {
@@ -182,19 +161,11 @@ func TestVectorPBES2_HS256A_128KW(t *testing.T) {
 		246, 158, 161, 177, 20, 33, 245, 57, 59, 4}
 
 	derivedKey, err := pbkdf2.Key(sha256.New, string(cipher.key), salt, cipher.p2c, 16)
-	if err != nil {
-		t.Fatal("Unable to encrypt:", err)
-	}
-	if !bytes.Equal(derivedKey, expectedDerivedKey) {
-		t.Error("Derived key did not match")
-	}
+	require.NoError(t, err, "Unable to encrypt")
+	assert.Equal(t, expectedDerivedKey, derivedKey, "Derived key did not match")
 
 	encryptedKey, err := cipher.encryptKey(cek, PBES2_HS256_A128KW)
-	if err != nil {
-		t.Fatal("Unable to encrypt:", err)
-	}
+	require.NoError(t, err, "Unable to encrypt")
 
-	if !bytes.Equal(encryptedKey.encryptedKey, expectedEncryptedKey) {
-		t.Error("Encrypted key did not match")
-	}
+	assert.Equal(t, expectedEncryptedKey, encryptedKey.encryptedKey, "Encrypted key did not match")
 }

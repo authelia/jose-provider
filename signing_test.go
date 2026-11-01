@@ -23,15 +23,16 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"math/big"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"authelia.com/provider/jose/json"
 )
@@ -116,9 +117,7 @@ func TestRoundtripsJWS(t *testing.T) {
 		for i, serializer := range serializers {
 			t.Run(fmt.Sprintf("RoundTripsJWS%d-%s", i, alg), func(t *testing.T) {
 				err := RoundtripJWS(alg, serializer, corrupter, signingKey, verificationKey, "test_nonce")
-				if err != nil {
-					t.Error(err)
-				}
+				assert.NoError(t, err)
 			})
 		}
 	}
@@ -151,9 +150,7 @@ func TestRoundtripsJWSCorruptSignature(t *testing.T) {
 		for i, serializer := range serializers {
 			for j, corrupter := range corrupters {
 				err := RoundtripJWS(alg, serializer, corrupter, signingKey, verificationKey, "test_nonce")
-				if err == nil {
-					t.Error("failed to detect corrupt signature", err, alg, i, j)
-				}
+				assert.Error(t, err, "failed to detect corrupt signature alg=%v i=%v j=%v", alg, i, j)
 			}
 		}
 	}
@@ -190,9 +187,7 @@ func TestSignerWithBrokenRand(t *testing.T) {
 		for i, getReader := range brokenRandReaders {
 			randReader = getReader()
 			err := RoundtripJWS(alg, serializer, corrupter, signingKey, verificationKey, "test_nonce")
-			if err == nil {
-				t.Error("signer should fail if rand is broken", alg, i)
-			}
+			assert.Error(t, err, "signer should fail if rand is broken alg=%v i=%v", alg, i)
 		}
 	}
 }
@@ -215,21 +210,15 @@ func TestJWSNilVerificationKey(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			signingKey, _ := GenerateSigningTestKey(test.algorithm)
 			signer, err := NewSigner(SigningKey{Algorithm: test.algorithm, Key: signingKey}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			obj, err := signer.Sign([]byte("payload"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
-			if _, err := obj.Verify(test.verificationKey); !errors.Is(err, test.want) {
-				t.Fatalf("Verify() error = %v, want %v", err, test.want)
-			}
+			_, err = obj.Verify(test.verificationKey)
+			require.ErrorIs(t, err, test.want, "Verify() error = %v, want %v", err, test.want)
 
-			if _, _, _, err := obj.VerifyMulti(test.verificationKey); err == nil {
-				t.Fatal("VerifyMulti() accepted a nil verification key")
-			}
+			_, _, _, err = obj.VerifyMulti(test.verificationKey)
+			require.Error(t, err, "VerifyMulti() accepted a nil verification key")
 		})
 	}
 }
@@ -252,27 +241,19 @@ func TestJWSInvalidKey(t *testing.T) {
 
 	// Must work with correct key
 	_, err = obj.Verify(verificationKey0)
-	if err != nil {
-		t.Error("error on verify", err)
-	}
+	assert.NoError(t, err, "error on verify")
 
 	// Must not work with incorrect key
 	_, err = obj.Verify(verificationKey1)
-	if err == nil {
-		t.Error("verification should fail with incorrect key")
-	}
+	assert.Error(t, err, "verification should fail with incorrect key")
 
 	// Must not work with incorrect key
 	_, err = obj.Verify(verificationKey2)
-	if err == nil {
-		t.Error("verification should fail with incorrect key")
-	}
+	assert.Error(t, err, "verification should fail with incorrect key")
 
 	// Must not work with invalid key
 	_, err = obj.Verify("")
-	if err == nil {
-		t.Error("verification should fail with incorrect key")
-	}
+	assert.Error(t, err, "verification should fail with incorrect key")
 }
 
 func TestMultiRecipientJWS(t *testing.T) {
@@ -292,53 +273,33 @@ func TestMultiRecipientJWS(t *testing.T) {
 		{HS384, sharedKey},
 		{HS512, jwkSharedKey},
 	}, nil)
-	if err != nil {
-		t.Fatal("error creating signer: ", err)
-	}
+	require.NoError(t, err, "error creating signer")
 
 	input := []byte("Lorem ipsum dolor sit amet")
 	obj, err := signer.Sign(input)
-	if err != nil {
-		t.Fatal("error on sign: ", err)
-	}
+	require.NoError(t, err, "error on sign")
 
 	_, err = obj.CompactSerialize()
-	if err == nil {
-		t.Fatal("message with multiple recipient was compact serialized")
-	}
+	require.Error(t, err, "message with multiple recipient was compact serialized")
 
 	msg := obj.FullSerialize()
 
 	obj, err = ParseSigned(msg, []SignatureAlgorithm{RS256, HS384, HS512})
-	if err != nil {
-		t.Fatal("error on parse: ", err)
-	}
+	require.NoError(t, err, "error on parse")
 
 	i, _, output, err := obj.VerifyMulti(&rsaTestKey.PublicKey)
-	if err != nil {
-		t.Fatal("error on verify: ", err)
-	}
+	require.NoError(t, err, "error on verify")
 
-	if i != 0 {
-		t.Fatal("signature index should be 0 for RSA key")
-	}
+	require.Equal(t, 0, i, "signature index should be 0 for RSA key")
 
-	if !bytes.Equal(output, input) {
-		t.Fatal("input/output do not match", output, input)
-	}
+	require.Equal(t, input, output, "input/output do not match output=%v input=%v", output, input)
 
 	i, _, output, err = obj.VerifyMulti(sharedKey)
-	if err != nil {
-		t.Fatal("error on verify: ", err)
-	}
+	require.NoError(t, err, "error on verify")
 
-	if i != 1 {
-		t.Fatal("signature index should be 1 for EC key")
-	}
+	require.Equal(t, 1, i, "signature index should be 1 for EC key")
 
-	if !bytes.Equal(output, input) {
-		t.Fatal("input/output do not match", output, input)
-	}
+	require.Equal(t, input, output, "input/output do not match output=%v input=%v", output, input)
 }
 
 // TestVerifyMultiJWKSPerSignatureKid checks that VerifyMulti honors different "kid"
@@ -348,13 +309,9 @@ func TestVerifyMultiJWKSPerSignatureKid(t *testing.T) {
 	payload := []byte("Lorem ipsum dolor sit amet")
 
 	keyBar, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	keyFoo, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader) // only its public key goes in the JWKS
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Both signatures are produced by keyBar. The "foo" signature is therefore
 	// invalid relative to the JWKS, whose "foo" entry is the unrelated keyFoo.
@@ -362,17 +319,11 @@ func TestVerifyMultiJWKSPerSignatureKid(t *testing.T) {
 		{Algorithm: ES256, Key: &JSONWebKey{KeyID: "foo", Key: keyBar}},
 		{Algorithm: ES256, Key: &JSONWebKey{KeyID: "bar", Key: keyBar}},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	obj, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	parsed, err := ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	jwks := &JSONWebKeySet{Keys: []JSONWebKey{
 		{KeyID: "foo", Key: keyFoo.Public()},
@@ -380,18 +331,10 @@ func TestVerifyMultiJWKSPerSignatureKid(t *testing.T) {
 	}}
 
 	idx, sig, out, err := parsed.VerifyMulti(jwks)
-	if err != nil {
-		t.Fatalf("VerifyMulti failed: %v", err)
-	}
-	if idx != 1 {
-		t.Errorf("verified signature index = %d, want 1", idx)
-	}
-	if sig.Header.KeyID != "bar" {
-		t.Errorf("verified kid = %q, want \"bar\"", sig.Header.KeyID)
-	}
-	if !bytes.Equal(out, payload) {
-		t.Error("payload mismatch")
-	}
+	require.NoError(t, err, "VerifyMulti failed")
+	assert.Equal(t, 1, idx, "verified signature index = %d, want 1", idx)
+	assert.Equal(t, "bar", sig.Header.KeyID, "verified kid = %q, want \"bar\"", sig.Header.KeyID)
+	assert.Equal(t, payload, out, "payload mismatch")
 }
 
 // TestVerifyMultiJWKSNoMatchingKid checks that VerifyMulti against a JWK Set fails
@@ -401,24 +344,16 @@ func TestVerifyMultiJWKSNoMatchingKid(t *testing.T) {
 	payload := []byte("Lorem ipsum dolor sit amet")
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	signer, err := NewMultiSigner([]SigningKey{
 		{Algorithm: ES256, Key: &JSONWebKey{KeyID: "foo", Key: key}},
 		{Algorithm: ES256, Key: &JSONWebKey{KeyID: "bar", Key: key}},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	obj, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	parsed, err := ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// The JWKS contains a usable key, but under a kid that matches no signature.
 	jwks := &JSONWebKeySet{Keys: []JSONWebKey{
@@ -426,18 +361,14 @@ func TestVerifyMultiJWKSNoMatchingKid(t *testing.T) {
 	}}
 
 	_, _, _, err = parsed.VerifyMulti(jwks)
-	if err == nil {
-		t.Error("expected error when no signature kid is present in the JWKS")
-	}
+	assert.Error(t, err, "expected error when no signature kid is present in the JWKS")
 
 	// The JWKS contains a usable key matching the second signature.
 	jwks = &JSONWebKeySet{Keys: []JSONWebKey{
 		{KeyID: "bar", Key: key.Public()},
 	}}
 	_, _, _, err = parsed.VerifyMulti(jwks)
-	if err != nil {
-		t.Errorf("verifying with JWK Set that includes 'bar': %s", err)
-	}
+	assert.NoError(t, err, "verifying with JWK Set that includes 'bar'")
 }
 
 // RFC 7515 Section 4.1.3.
@@ -456,15 +387,12 @@ func TestSignRefusesToEmbedAPrivateJWK(t *testing.T) {
 			sw.pk = tc.initial
 
 			signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: sw}, &SignerOptions{EmbedJWK: true})
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 
 			sw.pk = &JSONWebKey{Key: ecTestKey256}
 
-			if _, err = signer.Sign([]byte("payload")); !errors.Is(err, ErrNotPublic) {
-				t.Fatalf("Sign: got %v, want %v", err, ErrNotPublic)
-			}
+			_, err = signer.Sign([]byte("payload"))
+			require.ErrorIs(t, err, ErrNotPublic, "Sign: got %v, want %v", err, ErrNotPublic)
 		})
 	}
 }
@@ -486,15 +414,12 @@ func TestSignChecksExtraHeadersChangedAfterNewSigner(t *testing.T) {
 			opts := (&SignerOptions{}).WithHeader("x", 1)
 
 			signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: ecTestKey256}, opts)
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 
 			opts.ExtraHeaders[tc.header] = tc.value
 
-			if _, err = signer.Sign([]byte("payload")); !errors.Is(err, tc.wantErr) {
-				t.Errorf("Sign: got %v, want %v", err, tc.wantErr)
-			}
+			_, err = signer.Sign([]byte("payload"))
+			assert.ErrorIs(t, err, tc.wantErr, "Sign: got %v, want %v", err, tc.wantErr)
 		})
 	}
 }
@@ -509,13 +434,10 @@ func TestSignReturnsAnErrorForAHeaderJSONCannotEncode(t *testing.T) {
 	for name, v := range values {
 		t.Run(name, func(t *testing.T) {
 			signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: bytes.Repeat([]byte{1}, 32)}, (&SignerOptions{}).WithHeader("x", v))
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 
-			if _, err = signer.Sign([]byte("payload")); err == nil {
-				t.Error("Sign accepted a header value JSON cannot encode")
-			}
+			_, err = signer.Sign([]byte("payload"))
+			assert.Error(t, err, "Sign accepted a header value JSON cannot encode")
 		})
 	}
 }
@@ -523,34 +445,23 @@ func TestSignReturnsAnErrorForAHeaderJSONCannotEncode(t *testing.T) {
 // RFC 7517 Section 4.3.
 func TestEmbeddedJWKVerifiesWhenSigningKeyListsKeyOps(t *testing.T) {
 	signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: JSONWebKey{Key: ecTestKey256, KeyOps: []string{"sign"}}}, &SignerOptions{EmbedJWK: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := signer.Sign([]byte("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := ParseSignedCompact(serialized, []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	embedded := parsed.Signatures[0].Header.JSONWebKey
 
-	if !reflect.DeepEqual(embedded.KeyOps, []string{"verify"}) {
-		t.Errorf("embedded key_ops = %v, want [verify]", embedded.KeyOps)
-	}
+	assert.Equal(t, []string{"verify"}, embedded.KeyOps)
 
-	if _, err = parsed.Verify(embedded); err != nil {
-		t.Errorf("Verify with the embedded JWK: %v", err)
-	}
+	_, err = parsed.Verify(embedded)
+	assert.NoError(t, err, "Verify with the embedded JWK")
 }
 
 // RFC 7515 Section 4.1.11.
@@ -581,25 +492,18 @@ func TestNewSignerRejectsInvalidCritical(t *testing.T) {
 
 			signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
 			if !tc.valid {
-				if !errors.Is(err, ErrInvalidCriticalHeader) {
-					t.Errorf("NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
-				}
+				assert.ErrorIs(t, err, ErrInvalidCriticalHeader, "NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 
 			obj, err := signer.Sign([]byte("payload"))
-			if err != nil {
-				t.Fatalf("Sign: %v", err)
-			}
+			require.NoError(t, err, "Sign")
 
-			if _, err = ParseSignedJSON(obj.FullSerialize(), []SignatureAlgorithm{HS256}); err != nil {
-				t.Errorf("ParseSignedJSON: %v", err)
-			}
+			_, err = ParseSignedJSON(obj.FullSerialize(), []SignatureAlgorithm{HS256})
+			assert.NoError(t, err, "ParseSignedJSON")
 		})
 	}
 }
@@ -609,19 +513,16 @@ func TestWithCriticalAppendsToAnyExistingList(t *testing.T) {
 
 	opts := (&SignerOptions{}).WithHeader(headerCritical, []any{"ext"}).WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
 
-	if crit := opts.ExtraHeaders[headerCritical]; !reflect.DeepEqual(crit, []any{"ext", "other"}) {
-		t.Errorf("crit = %#v, want both names", crit)
-	}
+	crit := opts.ExtraHeaders[headerCritical]
+	assert.Equal(t, []any{"ext", "other"}, crit, "crit = %#v, want both names", crit)
 
-	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); err != nil {
-		t.Errorf("NewSigner: %v", err)
-	}
+	_, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
+	assert.NoError(t, err, "NewSigner")
 
 	opts = (&SignerOptions{}).WithHeader(headerCritical, "ext").WithHeader("ext", 1).WithCritical("other").WithHeader("other", 2)
 
-	if _, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts); !errors.Is(err, ErrInvalidCriticalHeader) {
-		t.Errorf("NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
-	}
+	_, err = NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
+	assert.ErrorIs(t, err, ErrInvalidCriticalHeader, "NewSigner: got %v, want %v", err, ErrInvalidCriticalHeader)
 }
 
 func TestSignRejectsExtraHeaderTooDeepForTheParser(t *testing.T) {
@@ -634,25 +535,20 @@ func TestSignRejectsExtraHeaderTooDeepForTheParser(t *testing.T) {
 		return
 	}
 
-	if _, err = signer.Sign([]byte("payload")); err == nil {
-		t.Fatal("Sign accepted a header nested deeper than the parser allows")
-	}
+	_, err = signer.Sign([]byte("payload"))
+	require.Error(t, err, "Sign accepted a header nested deeper than the parser allows")
 }
 
 func TestNewSignerRejectsMismatchedPrivateKey(t *testing.T) {
 	_, otherEd, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	mismatchedEd := make(ed25519.PrivateKey, ed25519.PrivateKeySize)
 	copy(mismatchedEd, ed25519PrivateKey.Seed())
 	copy(mismatchedEd[32:], otherEd[32:])
 
 	otherEC, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	mismatchedEC := &ecdsa.PrivateKey{PublicKey: otherEC.PublicKey, D: ecTestKey256.D}
 
@@ -677,9 +573,8 @@ func TestNewSignerRejectsMismatchedPrivateKey(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := NewSigner(SigningKey{Algorithm: tc.alg, Key: tc.key}, nil); err == nil {
-				t.Fatal("NewSigner accepted a private key whose public half does not match")
-			}
+			_, err := NewSigner(SigningKey{Algorithm: tc.alg, Key: tc.key}, nil)
+			require.Error(t, err, "NewSigner accepted a private key whose public half does not match")
 		})
 	}
 }
@@ -716,58 +611,40 @@ func GenerateSigningTestKey(sigAlg SignatureAlgorithm) (sig, ver any) {
 
 func TestInvalidSignerAlg(t *testing.T) {
 	_, err := NewSigner(SigningKey{"XYZ", nil}, nil)
-	if err == nil {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Error(t, err, "should not accept invalid algorithm")
 
 	_, err = NewSigner(SigningKey{"XYZ", []byte{}}, nil)
-	if err == nil {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Error(t, err, "should not accept invalid algorithm")
 }
 
 func TestInvalidJWS(t *testing.T) {
 	signer, err := NewSigner(SigningKey{PS256, rsaTestKey}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	obj.Signatures[0].header = &rawHeader{}
 
 	// headerB64 is known, but should be in protected
-	if err = obj.Signatures[0].header.set(headerCritical, []string{headerB64}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, obj.Signatures[0].header.set(headerCritical, []string{headerB64}))
 
 	_, err = obj.Verify(&rsaTestKey.PublicKey)
-	if err == nil {
-		t.Error("should not verify message with an unprotected but known crit header")
-	}
+	assert.Error(t, err, "should not verify message with an unprotected but known crit header")
 
 	// reject unknown critical headers
 	obj.Signatures[0].protected = &rawHeader{}
 	obj.Signatures[0].header = &rawHeader{}
-	if err = obj.Signatures[0].protected.set(headerCritical, []string{"unknown-critical-header"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, obj.Signatures[0].protected.set(headerCritical, []string{"unknown-critical-header"}))
 
 	_, err = obj.Verify(&rsaTestKey.PublicKey)
-	if err == nil {
-		t.Error("should not verify message with unknown crit header")
-	}
+	assert.Error(t, err, "should not verify message with unknown crit header")
 
 	// Try without alg header
 	obj.Signatures[0].protected = &rawHeader{}
 	obj.Signatures[0].header = &rawHeader{}
 
 	_, err = obj.Verify(&rsaTestKey.PublicKey)
-	if err == nil {
-		t.Error("should not verify message with missing headers")
-	}
+	assert.Error(t, err, "should not verify message with missing headers")
 }
 
 func TestSignerKid(t *testing.T) {
@@ -775,118 +652,78 @@ func TestSignerKid(t *testing.T) {
 	payload := []byte("Lorem ipsum dolor sit amet")
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Error("problem generating test signing key", err)
-	}
+	assert.NoError(t, err, "problem generating test signing key")
 
 	basejwk := JSONWebKey{Key: key}
 	jsonbar, err := basejwk.MarshalJSON()
-	if err != nil {
-		t.Error("problem marshalling base JWK", err)
-	}
+	assert.NoError(t, err, "problem marshalling base JWK")
 
 	var jsonmsi map[string]any
 	err = json.Unmarshal(jsonbar, &jsonmsi)
-	if err != nil {
-		t.Error("problem unmarshalling base JWK", err)
-	}
+	assert.NoError(t, err, "problem unmarshalling base JWK")
 	jsonmsi["kid"] = kid
 	jsonbar2, err := json.Marshal(jsonmsi)
-	if err != nil {
-		t.Error("problem marshalling kided JWK", err)
-	}
+	assert.NoError(t, err, "problem marshalling kided JWK")
 
 	var jwk JSONWebKey
 	err = jwk.UnmarshalJSON(jsonbar2)
-	if err != nil {
-		t.Error("problem unmarshalling kided JWK", err)
-	}
+	assert.NoError(t, err, "problem unmarshalling kided JWK")
 
 	signer, err := NewSigner(SigningKey{ES256, &jwk}, nil)
-	if err != nil {
-		t.Error("problem creating signer with *JSONWebKey", err)
-	}
+	assert.NoError(t, err, "problem creating signer with *JSONWebKey")
 
 	signed, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	serialized := signed.FullSerialize()
 
 	parsed, err := ParseSigned(serialized, []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Error("problem parsing signed object", err)
-	}
+	assert.NoError(t, err, "problem parsing signed object")
 
-	if parsed.Signatures[0].Header.KeyID != kid {
-		t.Error("KeyID did not survive trip")
-	}
+	assert.Equal(t, kid, parsed.Signatures[0].Header.KeyID, "KeyID did not survive trip")
 
 	_, err = NewSigner(SigningKey{ES256, jwk}, nil)
-	if err != nil {
-		t.Error("problem creating signer with JSONWebKey", err)
-	}
+	assert.NoError(t, err, "problem creating signer with JSONWebKey")
 
 	// Verify with JWKS
 	_, err = parsed.Verify(&JSONWebKeySet{
 		Keys: []JSONWebKey{jwk.Public()},
 	})
-	if err != nil {
-		t.Error("problem verifying with JWKS", err)
-	}
+	assert.NoError(t, err, "problem verifying with JWKS")
 }
 
 func TestEmbedJwk(t *testing.T) {
 	var payload = []byte("Lorem ipsum dolor sit amet")
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Error("Failed to generate key")
-	}
+	assert.NoError(t, err, "Failed to generate key")
 
 	signer, err := NewSigner(SigningKey{ES256, key}, &SignerOptions{EmbedJWK: true})
-	if err != nil {
-		t.Error("Failed to create signer")
-	}
+	assert.NoError(t, err, "Failed to create signer")
 
 	object, err := signer.Sign(payload)
-	if err != nil {
-		t.Error("Failed to sign payload")
-	}
+	assert.NoError(t, err, "Failed to sign payload")
 
 	object, err = ParseSigned(object.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Error("Failed to parse jws")
-	}
+	assert.NoError(t, err, "Failed to parse jws")
 
 	jwk, err := object.Signatures[0].protected.getJWK()
 	if jwk == nil || err != nil {
-		t.Error("JWK isn't set in protected header")
+		assert.Fail(t, "JWK isn't set in protected header")
 	}
 
 	// This time, sign and do not embed JWK in message
 	signer, err = NewSigner(SigningKey{ES256, key}, &SignerOptions{EmbedJWK: false})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	object, err = signer.Sign(payload)
-	if err != nil {
-		t.Error("Failed to sign payload")
-	}
+	assert.NoError(t, err, "Failed to sign payload")
 
 	object, err = ParseSigned(object.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Error("Failed to parse jws")
-	}
+	assert.NoError(t, err, "Failed to parse jws")
 
 	jwk2, err := object.Signatures[0].protected.getJWK()
-	if err != nil {
-		t.Error("JWK is invalid in protected header")
-	}
-	if jwk2 != nil {
-		t.Error("JWK is set in protected header")
-	}
+	assert.NoError(t, err, "JWK is invalid in protected header")
+	assert.Nil(t, jwk2, "JWK is set in protected header")
 }
 
 func TestSignerOptionsEd(t *testing.T) {
@@ -897,13 +734,9 @@ func TestSignerOptionsEd(t *testing.T) {
 	opts.WithContentType("JWT")
 	opts.WithType("JWT")
 	sig, err := NewSigner(SigningKey{EdDSA, key}, opts)
-	if err != nil {
-		t.Error("Failed to create signer")
-	}
+	assert.NoError(t, err, "Failed to create signer")
 
-	if !reflect.DeepEqual(*opts, sig.Options()) {
-		t.Error("Signer options do not match")
-	}
+	assert.Equal(t, sig.Options(), *opts, "Signer options do not match")
 }
 
 func TestSignerOptions(t *testing.T) {
@@ -914,13 +747,9 @@ func TestSignerOptions(t *testing.T) {
 	opts.WithContentType("JWT")
 	opts.WithType("JWT")
 	sig, err := NewSigner(SigningKey{HS256, key}, opts)
-	if err != nil {
-		t.Error("Failed to create signer")
-	}
+	assert.NoError(t, err, "Failed to create signer")
 
-	if !reflect.DeepEqual(*opts, sig.Options()) {
-		t.Error("Signer options do not match")
-	}
+	assert.Equal(t, sig.Options(), *opts, "Signer options do not match")
 }
 
 // Test that extra headers are generated and parsed in a round trip.
@@ -928,33 +757,23 @@ func TestSignerExtraHeaderInclusion(t *testing.T) {
 	var payload = []byte("Lorem ipsum dolor sit amet")
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Error("Failed to generate key")
-	}
+	assert.NoError(t, err, "Failed to generate key")
 
 	signer, err := NewSigner(SigningKey{ES256, key}, (&SignerOptions{}).WithContentType("foo/bar").WithHeader(HeaderKey("myCustomHeader"), "xyz"))
-	if err != nil {
-		t.Error("Failed to create signer", err)
-	}
+	assert.NoError(t, err, "Failed to create signer")
 
 	object, err := signer.Sign(payload)
-	if err != nil {
-		t.Error("Failed to sign payload")
-	}
+	assert.NoError(t, err, "Failed to sign payload")
 
 	object, err = ParseSigned(object.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Error("Failed to parse jws")
-	}
+	assert.NoError(t, err, "Failed to parse jws")
 
 	correct := map[HeaderKey]any{
 		HeaderContentType:           "foo/bar",
 		HeaderKey("myCustomHeader"): "xyz",
 	}
 
-	if !reflect.DeepEqual(object.Signatures[0].Header.ExtraHeaders, correct) {
-		t.Errorf("Mismatch in extra headers: %#v", object.Signatures[0].Header.ExtraHeaders)
-	}
+	assert.Equal(t, correct, object.Signatures[0].Header.ExtraHeaders)
 }
 
 func TestSignerB64(t *testing.T) {
@@ -975,40 +794,28 @@ func TestSignerB64(t *testing.T) {
 	opts.WithBase64(false)
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
-	if err != nil {
-		t.Fatalf("Failed to create signer: %v", err)
-	}
+	require.NoError(t, err, "Failed to create signer")
 
 	input := []byte("$.02")
 
 	obj, err := signer.Sign(input)
-	if err != nil {
-		t.Fatalf("Failed to sign payload: %v", err)
-	}
+	require.NoError(t, err, "Failed to sign payload")
 
 	// The detached serialization must match the specification byte for byte.
 	msg, err := obj.DetachedCompactSerialize()
-	if err != nil {
-		t.Fatalf("Failed to serialize detached: %v", err)
-	}
+	require.NoError(t, err, "Failed to serialize detached")
 
-	if msg != detached {
-		t.Errorf("Invalid detached serialization, got '%s', expected '%s'", msg, detached)
-	}
+	assert.Equal(t, msg, detached, "Invalid detached serialization, got '%s', expected '%s'", msg, detached)
 
 	parsed, err := ParseDetached(msg, input, []SignatureAlgorithm{HS256})
-	if err != nil {
-		t.Fatalf("Error on parse: %s", err)
-	}
+	require.NoError(t, err, "Error on parse")
 
-	if err = parsed.DetachedVerify(input, key); err != nil {
-		t.Errorf("Error on verify: %s", err)
-	}
+	err = parsed.DetachedVerify(input, key)
+	assert.NoError(t, err, "Error on verify")
 
 	// Non-detached is refused for this payload, per RFC 7797 Section 5.2.
-	if _, err = obj.CompactSerialize(); !errors.Is(err, ErrNotSupported) {
-		t.Errorf("CompactSerialize of an unencoded payload containing '.' returned %v, want %v", err, ErrNotSupported)
-	}
+	_, err = obj.CompactSerialize()
+	assert.ErrorIs(t, err, ErrNotSupported, "CompactSerialize of an unencoded payload containing '.' returned %v, want %v", err, ErrNotSupported)
 }
 
 // RFC 7797 Section 5.2 permits an unencoded non-detached payload when it carries
@@ -1023,52 +830,38 @@ func TestSignerB64NonDetached(t *testing.T) {
 	opts.WithBase64(false)
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
 	obj, err := signer.Sign(input)
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
 	compact, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	// The payload segment has to be the payload itself, not its encoding.
-	if segments := strings.Split(compact, "."); segments[1] != string(input) {
-		t.Errorf("compact payload segment = %q, want %q", segments[1], input)
-	}
+	segments := strings.Split(compact, ".")
+	assert.Equal(t, string(input), segments[1])
 
 	// And the JSON serialization carries it literally too, per Section 5.3.
 	var members map[string]any
-	if err = json.Unmarshal([]byte(obj.FullSerialize()), &members); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	err = json.Unmarshal([]byte(obj.FullSerialize()), &members)
+	require.NoError(t, err, "unmarshal")
 
-	if members["payload"] != string(input) {
-		t.Errorf("JSON payload member = %v, want %q", members["payload"], input)
-	}
+	assert.Equal(t, string(input), members["payload"])
 
 	// Both serializations must round-trip.
 	for name, serialized := range map[string]string{"compact": compact, "json": obj.FullSerialize()} {
 		parsed, err := ParseSigned(serialized, []SignatureAlgorithm{HS256})
-		if err != nil {
-			t.Errorf("%s: ParseSigned: %v", name, err)
+		if !assert.NoError(t, err, "%s: ParseSigned", name) {
 			continue
 		}
 
 		output, err := parsed.Verify(key)
-		if err != nil {
-			t.Errorf("%s: Verify: %v", name, err)
+		if !assert.NoError(t, err, "%s: Verify", name) {
 			continue
 		}
 
-		if !bytes.Equal(output, input) {
-			t.Errorf("%s: payload = %q, want %q", name, output, input)
-		}
+		assert.Equal(t, input, output, "%s: payload = %q, want %q", name, output, input)
 	}
 }
 
@@ -1079,49 +872,33 @@ func TestSignerB64NonDetachedRejectsWhitespaceInCompact(t *testing.T) {
 	opts.WithBase64(false)
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
 	for _, input := range []string{"a b", "a\tb", "a\nb", "a b"} {
 		t.Run(fmt.Sprintf("%q", input), func(t *testing.T) {
 			obj, err := signer.Sign([]byte(input))
-			if err != nil {
-				t.Fatalf("Sign: %v", err)
-			}
+			require.NoError(t, err, "Sign")
 
-			if _, err = obj.CompactSerialize(); !errors.Is(err, ErrNotSupported) {
-				t.Fatalf("CompactSerialize error = %v, want ErrNotSupported", err)
-			}
+			_, err = obj.CompactSerialize()
+			require.ErrorIs(t, err, ErrNotSupported, "CompactSerialize error = %v, want ErrNotSupported", err)
 
 			// The payload can still be detached, or carried by the JSON serialization.
 			detached, err := obj.DetachedCompactSerialize()
-			if err != nil {
-				t.Fatalf("DetachedCompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "DetachedCompactSerialize")
 
 			parsed, err := ParseDetached(detached, []byte(input), []SignatureAlgorithm{HS256})
-			if err != nil {
-				t.Fatalf("ParseDetached: %v", err)
-			}
+			require.NoError(t, err, "ParseDetached")
 
-			if _, err = parsed.Verify(key); err != nil {
-				t.Fatalf("Verify detached: %v", err)
-			}
+			_, err = parsed.Verify(key)
+			require.NoError(t, err, "Verify detached")
 
 			parsed, err = ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{HS256})
-			if err != nil {
-				t.Fatalf("ParseSigned JSON: %v", err)
-			}
+			require.NoError(t, err, "ParseSigned JSON")
 
 			output, err := parsed.Verify(key)
-			if err != nil {
-				t.Fatalf("Verify JSON: %v", err)
-			}
+			require.NoError(t, err, "Verify JSON")
 
-			if string(output) != input {
-				t.Errorf("payload = %q, want %q", output, input)
-			}
+			assert.Equal(t, input, string(output), "payload = %q, want %q", output, input)
 		})
 	}
 }
@@ -1138,13 +915,9 @@ func BenchmarkParseSigned(b *testing.B) {
 
 func TestVerifyJWKSDuplicateKid(t *testing.T) {
 	signing, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	payload := []byte("Lorem ipsum dolor sit amet")
 
@@ -1152,13 +925,9 @@ func TestVerifyJWKSDuplicateKid(t *testing.T) {
 		Algorithm: ES256,
 		Key:       &JSONWebKey{KeyID: "shared", Key: signing},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	obj, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	correct := JSONWebKey{KeyID: "shared", Key: signing.Public()}
 	decoy := JSONWebKey{KeyID: "shared", Key: other.Public()}
@@ -1172,49 +941,33 @@ func TestVerifyJWKSDuplicateKid(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parsed, err := ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{ES256})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			out, err := parsed.Verify(&JSONWebKeySet{Keys: tc.keys})
-			if err != nil {
-				t.Fatalf("Verify failed: %v", err)
-			}
-			if !bytes.Equal(out, payload) {
-				t.Error("payload mismatch")
-			}
+			require.NoError(t, err, "Verify failed")
+			assert.Equal(t, payload, out, "payload mismatch")
 		})
 	}
 }
 
 func TestVerifyJWKSUnusableKeyReportsKeyError(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	signer, err := NewSigner(SigningKey{
 		Algorithm: ES256,
 		Key:       &JSONWebKey{KeyID: "shared", Key: key},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	obj, err := signer.Sign([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := ParseSigned(obj.FullSerialize(), []SignatureAlgorithm{ES256})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_, err = parsed.Verify(&JSONWebKeySet{Keys: []JSONWebKey{{KeyID: "shared", Key: "not a key"}}})
 
-	if !errors.Is(err, ErrUnsupportedKeyType) {
-		t.Errorf("expected ErrUnsupportedKeyType, got: %v", err)
-	}
+	assert.ErrorIs(t, err, ErrUnsupportedKeyType, "expected ErrUnsupportedKeyType, got: %v", err)
 }
 
 // The protected header used to be seeded with the real algorithm and then have ExtraHeaders copied over the top,
@@ -1310,40 +1063,28 @@ func TestNewSignerRejectsUnusableExtraHeaders(t *testing.T) {
 			signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
 
 			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("NewSigner: got %v, want %v", err, tc.wantErr)
-				}
+				require.ErrorIs(t, err, tc.wantErr, "NewSigner: got %v, want %v", err, tc.wantErr)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("NewSigner: %v", err)
-			}
+			require.NoError(t, err, "NewSigner")
 
 			// What the signer does accept has to still round-trip, header and payload both.
 			obj, err := signer.Sign([]byte("NDA1"))
-			if err != nil {
-				t.Fatalf("Sign: %v", err)
-			}
+			require.NoError(t, err, "Sign")
 
 			serialized, err := obj.CompactSerialize()
-			if err != nil {
-				t.Fatalf("CompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "CompactSerialize")
 
 			parsed, err := ParseSignedCompact(serialized, []SignatureAlgorithm{HS256})
-			if err != nil {
-				t.Fatalf("ParseSignedCompact: %v", err)
-			}
+			require.NoError(t, err, "ParseSignedCompact")
 
-			if _, err = parsed.Verify(key); err != nil {
-				t.Fatalf("Verify: %v", err)
-			}
+			_, err = parsed.Verify(key)
+			require.NoError(t, err, "Verify")
 
-			if alg := parsed.Signatures[0].Protected.Algorithm; alg != string(HS256) {
-				t.Errorf("protected alg = %q, want %q", alg, HS256)
-			}
+			alg := parsed.Signatures[0].Protected.Algorithm
+			assert.Equal(t, string(HS256), alg, "protected alg = %q, want %q", alg, HS256)
 		})
 	}
 }
@@ -1351,9 +1092,8 @@ func TestNewSignerRejectsUnusableExtraHeaders(t *testing.T) {
 func TestDetachedVerifyWithoutSignatures(t *testing.T) {
 	obj := &JSONWebSignature{}
 
-	if err := obj.DetachedVerify([]byte("payload"), []byte("0123456789ABCDEF0123456789ABCDEF")); err == nil {
-		t.Error("DetachedVerify on an object with no signatures returned no error")
-	}
+	err := obj.DetachedVerify([]byte("payload"), []byte("0123456789ABCDEF0123456789ABCDEF"))
+	assert.Error(t, err, "DetachedVerify on an object with no signatures returned no error")
 }
 
 func TestSignPopulatesTheSignatureFields(t *testing.T) {
@@ -1362,75 +1102,48 @@ func TestSignPopulatesTheSignatureFields(t *testing.T) {
 	opts := (&SignerOptions{}).WithType("JWT").WithHeader(headerKeyID, "k1")
 
 	signer, err := NewSigner(SigningKey{Algorithm: HS256, Key: key}, opts)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
+	require.NoError(t, err, "NewSigner")
 
 	obj, err := signer.Sign([]byte("NDA1"))
-	if err != nil {
-		t.Fatalf("Sign: %v", err)
-	}
+	require.NoError(t, err, "Sign")
 
-	if len(obj.Signatures) != 1 {
-		t.Fatalf("got %d signatures, want 1", len(obj.Signatures))
-	}
+	require.Len(t, obj.Signatures, 1)
 
 	signed := obj.Signatures[0]
 
 	for name, header := range map[string]Header{"Header": signed.Header, "Protected": signed.Protected} {
-		if header.Algorithm != string(HS256) {
-			t.Errorf("%s.Algorithm = %q, want %q", name, header.Algorithm, HS256)
-		}
+		assert.Equal(t, string(HS256), header.Algorithm, "%s.Algorithm = %q, want %q", name, header.Algorithm, HS256)
 
-		if header.KeyID != "k1" {
-			t.Errorf("%s.KeyID = %q, want %q", name, header.KeyID, "k1")
-		}
+		assert.Equal(t, "k1", header.KeyID, "%s.KeyID = %q, want %q", name, header.KeyID, "k1")
 
 		if typ := header.ExtraHeaders[HeaderType]; typ == nil {
-			t.Errorf("%s carries no typ", name)
+			assert.Failf(t, "unexpected result", "%s carries no typ", name)
 		}
 	}
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	parsed, err := ParseSignedCompact(serialized, []SignatureAlgorithm{HS256})
-	if err != nil {
-		t.Fatalf("ParseSignedCompact: %v", err)
-	}
+	require.NoError(t, err, "ParseSignedCompact")
 
-	if parsed.Signatures[0].Header.Algorithm != signed.Header.Algorithm {
-		t.Errorf("parsed Header.Algorithm = %q, signed = %q",
-			parsed.Signatures[0].Header.Algorithm, signed.Header.Algorithm)
-	}
+	assert.Equal(t, signed.Header.Algorithm, parsed.Signatures[0].Header.Algorithm)
 
-	if parsed.Signatures[0].Header.KeyID != signed.Header.KeyID {
-		t.Errorf("parsed Header.KeyID = %q, signed = %q",
-			parsed.Signatures[0].Header.KeyID, signed.Header.KeyID)
-	}
+	assert.Equal(t, signed.Header.KeyID, parsed.Signatures[0].Header.KeyID)
 
-	if !reflect.DeepEqual(parsed.Signatures[0].Header.ExtraHeaders, signed.Header.ExtraHeaders) {
-		t.Errorf("parsed ExtraHeaders = %#v, signed = %#v",
-			parsed.Signatures[0].Header.ExtraHeaders, signed.Header.ExtraHeaders)
-	}
+	assert.Equal(t, signed.Header.ExtraHeaders, parsed.Signatures[0].Header.ExtraHeaders)
 
 	signed.Header.ExtraHeaders[HeaderKey("scratch")] = true
 
-	if _, ok := signed.Protected.ExtraHeaders[HeaderKey("scratch")]; ok {
-		t.Error("Header and Protected share their ExtraHeaders map")
-	}
+	_, ok := signed.Protected.ExtraHeaders[HeaderKey("scratch")]
+	assert.False(t, ok, "Header and Protected share their ExtraHeaders map")
 }
 
 func TestSignUnmarshalableExtraHeader(t *testing.T) {
 	signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: rsaTestKey}, (&SignerOptions{}).WithHeader("x", make(chan int)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := signer.Sign([]byte("payload")); err == nil {
-		t.Error("expected error signing with unmarshalable extra header")
-	}
+	require.NoError(t, err)
+	_, err = signer.Sign([]byte("payload"))
+	assert.Error(t, err, "expected error signing with unmarshalable extra header")
 }
 
 func TestNewMultiSignerRespectsMaxSignatures(t *testing.T) {
@@ -1441,13 +1154,21 @@ func TestNewMultiSignerRespectsMaxSignatures(t *testing.T) {
 	key := make([]byte, 32)
 	sigs := []SigningKey{{Algorithm: HS256, Key: key}, {Algorithm: HS256, Key: key}}
 
-	if _, err := NewMultiSigner(sigs, nil); err == nil || !strings.Contains(err.Error(), "too many signatures") {
-		t.Errorf("expected too many signatures error, got %v", err)
-	}
+	_, err := NewMultiSigner(sigs, nil)
+	assert.ErrorContains(t, err, "too many signatures", "expected too many signatures error")
 
 	MaxSignatures = 2
 
-	if _, err := NewMultiSigner(sigs, nil); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	_, err = NewMultiSigner(sigs, nil)
+	assert.NoError(t, err, "unexpected error")
+}
+
+func TestNewSignerRejectsNilJSONWebKey(t *testing.T) {
+	var key *JSONWebKey
+
+	_, err := NewSigner(SigningKey{Algorithm: ES256, Key: key}, nil)
+	assert.ErrorIs(t, err, ErrUnsupportedKeyType)
+
+	_, err = NewMultiSigner([]SigningKey{{Algorithm: ES256, Key: key}}, nil)
+	assert.ErrorIs(t, err, ErrUnsupportedKeyType)
 }

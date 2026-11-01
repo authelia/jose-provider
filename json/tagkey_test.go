@@ -6,6 +6,8 @@ package json
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type basicLatin2xTag struct {
@@ -99,21 +101,17 @@ func TestStructTagObjectKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			b, err := Marshal(tt.raw)
-			if err != nil {
-				t.Fatalf("%s: Marshal error: %v", tt.Where, err)
-			}
+			require.NoError(t, err, "%s: Marshal error", tt.Where)
 			var f any
 			err = Unmarshal(b, &f)
-			if err != nil {
-				t.Fatalf("%s: Unmarshal error: %v", tt.Where, err)
-			}
+			require.NoError(t, err, "%s: Unmarshal error", tt.Where)
 			for k, v := range f.(map[string]any) {
 				if k == tt.key {
 					if s, ok := v.(string); !ok || s != tt.value {
-						t.Fatalf("%s: Unmarshal(%#q) value:\n\tgot:  %q\n\twant: %q", tt.Where, b, s, tt.value)
+						require.Failf(t, "unexpected result", "%s: Unmarshal(%#q) value:\n\tgot:  %q\n\twant: %q", tt.Where, b, s, tt.value)
 					}
 				} else {
-					t.Fatalf("%s: Unmarshal(%#q): unexpected key: %q", tt.Where, b, k)
+					require.Failf(t, "unexpected result", "%s: Unmarshal(%#q): unexpected key: %q", tt.Where, b, k)
 				}
 			}
 		})

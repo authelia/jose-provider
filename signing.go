@@ -418,6 +418,10 @@ func makeJWSRecipient(alg SignatureAlgorithm, signingKey any) (recipientSigInfo,
 	case JSONWebKey:
 		return newJWKSigner(alg, signingKey)
 	case *JSONWebKey:
+		if signingKey == nil {
+			return recipientSigInfo{}, ErrUnsupportedKeyType
+		}
+
 		return newJWKSigner(alg, *signingKey)
 	case OpaqueSigner:
 		return newOpaqueSigner(alg, signingKey)
