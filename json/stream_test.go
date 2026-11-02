@@ -18,6 +18,9 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TODO(https://go.dev/issue/52751): Replace with native testing support.
@@ -75,12 +78,11 @@ func TestEncoder(t *testing.T) {
 		enc.SetIndent(">", ".")
 		enc.SetIndent("", "")
 		for j, v := range streamTest[0:i] {
-			if err := enc.Encode(v); err != nil {
-				t.Fatalf("#%d.%d Encode error: %v", i, j, err)
-			}
+			err := enc.Encode(v)
+			require.NoError(t, err, "#%d.%d Encode error", i, j)
 		}
 		if got, want := buf.String(), nlines(streamEncoded, i); got != want {
-			t.Errorf("encoding %d items: mismatch:", i)
+			assert.Failf(t, "unexpected result", "encoding %d items: mismatch:", i)
 			diff(t, []byte(got), []byte(want))
 			break
 		}
@@ -102,25 +104,22 @@ func TestEncoderErrorAndReuseEncodeState(t *testing.T) {
 
 	var buf bytes.Buffer
 	enc := NewEncoder(&buf)
-	if err := enc.Encode(dummy); err == nil {
-		t.Errorf("Encode(dummy) error: got nil, want non-nil")
-	}
+	err := enc.Encode(dummy)
+	assert.Error(t, err, "Encode(dummy) error: got nil, want non-nil")
 
 	type Data struct {
 		A string
 		I int
 	}
 	want := Data{A: "a", I: 1}
-	if err := enc.Encode(want); err != nil {
-		t.Errorf("Marshal error: %v", err)
-	}
+	err = enc.Encode(want)
+	assert.NoError(t, err, "Marshal error")
 
 	var got Data
-	if err := Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Errorf("Unmarshal error: %v", err)
-	}
+	err = Unmarshal(buf.Bytes(), &got)
+	assert.NoError(t, err, "Unmarshal error")
 	if got != want {
-		t.Errorf("Marshal/Unmarshal roundtrip:\n\tgot:  %v\n\twant: %v", got, want)
+		assert.Failf(t, "unexpected result", "Marshal/Unmarshal roundtrip:\n\tgot:  %v\n\twant: %v", got, want)
 	}
 }
 
@@ -149,7 +148,7 @@ func TestEncoderIndent(t *testing.T) {
 		enc.Encode(v)
 	}
 	if got, want := buf.String(), streamEncodedIndent; got != want {
-		t.Errorf("Encode mismatch:\ngot:\n%s\n\nwant:\n%s", got, want)
+		assert.Failf(t, "unexpected result", "Encode mismatch:\ngot:\n%s\n\nwant:\n%s", got, want)
 		diff(t, []byte(got), []byte(want))
 	}
 }
@@ -216,21 +215,16 @@ func TestEncoderSetEscapeHTML(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			var buf strings.Builder
 			enc := NewEncoder(&buf)
-			if err := enc.Encode(tt.v); err != nil {
-				t.Fatalf("%s: Encode(%s) error: %s", tt.Where, tt.Name, err)
-			}
-			if got := strings.TrimSpace(buf.String()); got != tt.wantEscape {
-				t.Errorf("%s: Encode(%s):\n\tgot:  %s\n\twant: %s", tt.Where, tt.Name, got, tt.wantEscape)
-			}
+			err := enc.Encode(tt.v)
+			require.NoError(t, err, "%s: Encode(%s) error", tt.Where, tt.Name)
+			got := strings.TrimSpace(buf.String())
+			assert.Equal(t, tt.wantEscape, got, "%s: Encode(%s):\n\tgot:  %s\n\twant: %s", tt.Where, tt.Name, got, tt.wantEscape)
 			buf.Reset()
 			enc.SetEscapeHTML(false)
-			if err := enc.Encode(tt.v); err != nil {
-				t.Fatalf("%s: SetEscapeHTML(false) Encode(%s) error: %s", tt.Where, tt.Name, err)
-			}
-			if got := strings.TrimSpace(buf.String()); got != tt.want {
-				t.Errorf("%s: SetEscapeHTML(false) Encode(%s):\n\tgot:  %s\n\twant: %s",
-					tt.Where, tt.Name, got, tt.want)
-			}
+			err = enc.Encode(tt.v)
+			require.NoError(t, err, "%s: SetEscapeHTML(false) Encode(%s) error", tt.Where, tt.Name)
+			got = strings.TrimSpace(buf.String())
+			assert.Equal(t, tt.want, got, "%s: SetEscapeHTML(false) Encode(%s):\n\tgot:  %s\n\twant: %s", tt.Where, tt.Name, got, tt.want)
 		})
 	}
 }
@@ -251,15 +245,13 @@ func TestDecoder(t *testing.T) {
 		out := make([]any, i)
 		dec := NewDecoder(&buf)
 		for j := range out {
-			if err := dec.Decode(&out[j]); err != nil {
-				t.Fatalf("decode #%d/%d error: %v", j, i, err)
-			}
+			err := dec.Decode(&out[j])
+			require.NoError(t, err, "decode #%d/%d error", j, i)
 		}
-		if !reflect.DeepEqual(out, streamTest[0:i]) {
-			t.Errorf("decoding %d items: mismatch:", i)
+		if !assert.Equal(t, streamTest[0:i], out, "decoding %d items: mismatch:", i) {
 			for j := range out {
 				if !reflect.DeepEqual(out[j], streamTest[j]) {
-					t.Errorf("#%d:\n\tgot:  %v\n\twant: %v", j, out[j], streamTest[j])
+					assert.Failf(t, "unexpected result", "#%d:\n\tgot:  %v\n\twant: %v", j, out[j], streamTest[j])
 				}
 			}
 			break
@@ -274,19 +266,12 @@ func TestDecoderBuffered(t *testing.T) {
 	}
 	d := NewDecoder(r)
 	err := d.Decode(&m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.Name != "Gopher" {
-		t.Errorf("Name = %s, want Gopher", m.Name)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Gopher", m.Name, "Name = %s, want Gopher", m.Name)
 	rest, err := io.ReadAll(d.Buffered())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := string(rest), " extra "; got != want {
-		t.Errorf("Remaining = %s, want %s", got, want)
-	}
+	require.NoError(t, err)
+	got, want := string(rest), " extra "
+	assert.Equal(t, want, got, "Remaining = %s, want %s", got, want)
 }
 
 func nlines(s string, n int) string {
@@ -312,19 +297,11 @@ func TestRawMessage(t *testing.T) {
 	const raw = `["\u0056",null]`
 	const want = `{"X":0.1,"Id":["\u0056",null],"Y":0.2}`
 	err := Unmarshal([]byte(want), &data)
-	if err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-	if string([]byte(data.Id)) != raw {
-		t.Fatalf("Unmarshal:\n\tgot:  %s\n\twant: %s", []byte(data.Id), raw)
-	}
+	require.NoError(t, err, "Unmarshal error")
+	require.Equal(t, raw, string([]byte(data.Id)), "Unmarshal:\n\tgot:  %s\n\twant: %s", []byte(data.Id), raw)
 	got, err := Marshal(&data)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	if string(got) != want {
-		t.Fatalf("Marshal:\n\tgot:  %s\n\twant: %s", got, want)
-	}
+	require.NoError(t, err, "Marshal error")
+	require.Equal(t, want, string(got), "Marshal:\n\tgot:  %s\n\twant: %s", got, want)
 }
 
 func TestNullRawMessage(t *testing.T) {
@@ -336,22 +313,12 @@ func TestNullRawMessage(t *testing.T) {
 	}
 	const want = `{"X":0.1,"Id":null,"IdPtr":null,"Y":0.2}`
 	err := Unmarshal([]byte(want), &data)
-	if err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-	if want, got := "null", string(data.Id); want != got {
-		t.Fatalf("Unmarshal:\n\tgot:  %s\n\twant: %s", got, want)
-	}
-	if data.IdPtr != nil {
-		t.Fatalf("pointer mismatch: got non-nil, want nil")
-	}
+	require.NoError(t, err, "Unmarshal error")
+	require.Equal(t, "null", string(data.Id), "Unmarshal")
+	require.Nil(t, data.IdPtr, "pointer mismatch: got non-nil, want nil")
 	got, err := Marshal(&data)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	if string(got) != want {
-		t.Fatalf("Marshal:\n\tgot:  %s\n\twant: %s", got, want)
-	}
+	require.NoError(t, err, "Marshal error")
+	require.Equal(t, want, string(got), "Marshal")
 }
 
 func TestBlocking(t *testing.T) {
@@ -370,9 +337,8 @@ func TestBlocking(t *testing.T) {
 
 			// If Decode reads beyond what w.Write writes above,
 			// it will block, and the test will deadlock.
-			if err := NewDecoder(r).Decode(&val); err != nil {
-				t.Errorf("%s: NewDecoder(%s).Decode error: %v", tt.Where, tt.in, err)
-			}
+			err := NewDecoder(r).Decode(&val)
+			assert.NoError(t, err, "%s: NewDecoder(%s).Decode error", tt.Where, tt.in)
 			r.Close()
 			w.Close()
 		})
@@ -473,9 +439,8 @@ func TestDecodeInStream(t *testing.T) {
 				case Delim(']'), Delim('}'):
 					wantMore = false
 				}
-				if got := dec.More(); got != wantMore {
-					t.Fatalf("%s:\n\tinput: %s\n\tdec.More() = %v, want %v (next token: %T(%v))", tt.Where, tt.json, got, wantMore, want, want)
-				}
+				got = dec.More()
+				require.Equal(t, wantMore, got, "%s:\n\tinput: %s\n\tdec.More() = %v, want %v (next token: %T(%v))", tt.Where, tt.json, got, wantMore, want, want)
 
 				if dt, ok := want.(decodeThis); ok {
 					want = dt.v
@@ -485,15 +450,13 @@ func TestDecodeInStream(t *testing.T) {
 				}
 				if errWant, ok := want.(error); ok {
 					if err == nil || !reflect.DeepEqual(err, errWant) {
-						t.Fatalf("%s:\n\tinput: %s\n\tgot error:  %v\n\twant error: %v", tt.Where, tt.json, err, errWant)
+						require.Failf(t, "unexpected result", "%s:\n\tinput: %s\n\tgot error:  %v\n\twant error: %v", tt.Where, tt.json, err, errWant)
 					}
 					break
 				} else if err != nil {
-					t.Fatalf("%s:\n\tinput: %s\n\tgot error:  %v\n\twant error: nil", tt.Where, tt.json, err)
+					require.Failf(t, "unexpected result", "%s:\n\tinput: %s\n\tgot error:  %v\n\twant error: nil", tt.Where, tt.json, err)
 				}
-				if !reflect.DeepEqual(got, want) {
-					t.Fatalf("%s: token %d:\n\tinput: %s\n\tgot:  %T(%v)\n\twant: %T(%v)", tt.Where, i, tt.json, got, got, want, want)
-				}
+				require.Equal(t, want, got, "%s: token %d:\n\tinput: %s\n\tgot:  %T(%v)\n\twant: %T(%v)", tt.Where, i, tt.json, got, got, want, want)
 			}
 		})
 	}
@@ -521,18 +484,12 @@ func TestHTTPDecoding(t *testing.T) {
 
 	d := NewDecoder(res.Body)
 	err = d.Decode(&foo)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-	if foo.Foo != "bar" {
-		t.Errorf(`Decode: got %q, want "bar"`, foo.Foo)
-	}
+	require.NoError(t, err, "Decode error")
+	assert.Equal(t, "bar", foo.Foo, "Decode: got %q, want \"bar\"", foo.Foo)
 
 	// make sure we get the EOF the second time
 	err = d.Decode(&foo)
-	if err != io.EOF {
-		t.Errorf("Decode error:\n\tgot:  %v\n\twant: io.EOF", err)
-	}
+	assert.Same(t, io.EOF, err, "Decode error:\n\tgot:  %v\n\twant: io.EOF", err)
 }
 
 func TestTokenTruncation(t *testing.T) {
@@ -561,9 +518,7 @@ func TestTokenTruncation(t *testing.T) {
 		d := NewDecoder(strings.NewReader(tt.in))
 		for i := 0; true; i++ {
 			if _, err := d.Token(); err != nil {
-				if !reflect.DeepEqual(err, tt.err) {
-					t.Errorf("`%s`: %d.Token error = %#v, want %v", tt.in, i, err, tt.err)
-				}
+				assert.Equal(t, tt.err, err, "`%s`: %d.Token error = %#v, want %v", tt.in, i, err, tt.err)
 				break
 			}
 		}
@@ -591,25 +546,17 @@ func TestDecoderInputOffset(t *testing.T) {
 	checkOffset := func() {
 		t.Helper()
 		got := d.InputOffset()
-		if len(wantOffsets) == 0 {
-			t.Fatalf("InputOffset = %d, want nil", got)
-		}
+		require.NotEmpty(t, wantOffsets, "InputOffset = %d, want nil", got)
 		want := wantOffsets[0]
-		if got != want {
-			t.Fatalf("InputOffset = %d, want %d", got, want)
-		}
+		require.Equal(t, want, got, "InputOffset = %d, want %d", got, want)
 		wantOffsets = wantOffsets[1:]
 	}
 	checkMore := func() {
 		t.Helper()
 		got := d.More()
-		if len(wantMores) == 0 {
-			t.Fatalf("More = %v, want nil", got)
-		}
+		require.NotEmpty(t, wantMores, "More = %v, want nil", got)
 		want := wantMores[0]
-		if got != want {
-			t.Fatalf("More = %v, want %v", got, want)
-		}
+		require.Equal(t, want, got, "More = %v, want %v", got, want)
 		wantMores = wantMores[1:]
 	}
 	checkOffset()
@@ -619,7 +566,7 @@ func TestDecoderInputOffset(t *testing.T) {
 		if _, err := d.Token(); err == io.EOF {
 			break
 		} else if err != nil {
-			t.Fatalf("Token error: %v", err)
+			require.Failf(t, "unexpected result", "Token error: %v", err)
 		}
 		checkOffset()
 		checkMore()
@@ -629,7 +576,5 @@ func TestDecoderInputOffset(t *testing.T) {
 	checkMore()
 	checkOffset()
 
-	if len(wantOffsets)+len(wantMores) > 0 {
-		t.Fatal("unconsumed testdata")
-	}
+	require.LessOrEqual(t, len(wantOffsets)+len(wantMores), 0, "unconsumed testdata")
 }

@@ -6,13 +6,14 @@ package json
 
 import (
 	"bytes"
-	"errors"
 	"math"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // This file covers the behaviour that makes this package a fork of the standard
@@ -43,12 +44,10 @@ func TestForkCaseSensitive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s S
-			if err := Unmarshal([]byte(tt.in), &s); err != nil {
-				t.Fatalf("Unmarshal error: %v", err)
-			}
+			err := Unmarshal([]byte(tt.in), &s)
+			require.NoError(t, err, "Unmarshal error")
 			if s.Alpha != tt.wantAlpha || s.Beta != tt.wantBeta {
-				t.Errorf("got {Alpha:%q Beta:%q}, want {Alpha:%q Beta:%q}",
-					s.Alpha, s.Beta, tt.wantAlpha, tt.wantBeta)
+				assert.Failf(t, "unexpected result", "got {Alpha:%q Beta:%q}, want {Alpha:%q Beta:%q}", s.Alpha, s.Beta, tt.wantAlpha, tt.wantBeta)
 			}
 		})
 	}
@@ -77,12 +76,8 @@ func TestForkDuplicateKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := Unmarshal([]byte(tt.in), tt.ptr())
-			if err == nil {
-				t.Fatalf("Unmarshal(%s) succeeded, want duplicate key error", tt.in)
-			}
-			if !strings.Contains(err.Error(), "duplicate key") {
-				t.Fatalf("Unmarshal(%s) error = %v, want a duplicate key error", tt.in, err)
-			}
+			require.Error(t, err, "Unmarshal(%s) succeeded, want duplicate key error", tt.in)
+			require.Contains(t, err.Error(), "duplicate key", "Unmarshal(%s) error = %v, want a duplicate key error", tt.in, err)
 		})
 	}
 }
@@ -96,9 +91,8 @@ func TestForkDuplicateKeysAccepted(t *testing.T) {
 		`{"a":[{"k":1},{"k":2}]}`,
 	} {
 		var v any
-		if err := Unmarshal([]byte(in), &v); err != nil {
-			t.Errorf("Unmarshal(%s) error = %v, want nil", in, err)
-		}
+		err := Unmarshal([]byte(in), &v)
+		assert.NoError(t, err, "Unmarshal(%s) error = %v, want nil", in, err)
 	}
 }
 
@@ -125,12 +119,9 @@ func TestForkNumberType(t *testing.T) {
 			var got any
 			dec := NewDecoder(bytes.NewReader([]byte(tt.in)))
 			dec.SetNumberType(tt.numberType)
-			if err := dec.Decode(&got); err != nil {
-				t.Fatalf("Decode error: %v", err)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Decode(%s) = %#v (%T), want %#v (%T)", tt.in, got, got, tt.want, tt.want)
-			}
+			err := dec.Decode(&got)
+			require.NoError(t, err, "Decode error")
+			assert.Equal(t, tt.want, got, "Decode(%s) = %#v (%T), want %#v (%T)", tt.in, got, got, tt.want, tt.want)
 		})
 	}
 }
@@ -141,12 +132,10 @@ func TestForkUseNumber(t *testing.T) {
 	var got any
 	dec := NewDecoder(bytes.NewReader([]byte(`2`)))
 	dec.UseNumber()
-	if err := dec.Decode(&got); err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-	if want := Number("2"); got != want {
-		t.Errorf("Decode = %#v, want %#v", got, want)
-	}
+	err := dec.Decode(&got)
+	require.NoError(t, err, "Decode error")
+	want := Number("2")
+	assert.Equal(t, want, got, "Decode = %#v, want %#v", got, want)
 }
 
 func TestForkUnquoteErrors(t *testing.T) {
@@ -176,18 +165,14 @@ func TestForkUnquoteErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := unquoteBytes([]byte(tt.in))
-			if !errors.Is(err, tt.err) {
-				t.Fatalf("unquoteBytes(%q) error = %v, want %v", tt.in, err, tt.err)
-			}
+			require.ErrorIs(t, err, tt.err, "unquoteBytes(%q) error = %v, want %v", tt.in, err, tt.err)
 			if tt.err != nil {
 				return
 			}
-			if !bytes.Equal(got, tt.want) {
-				t.Errorf("unquoteBytes(%q) = %q, want %q", tt.in, got, tt.want)
-			}
+			assert.Equal(t, tt.want, got, "unquoteBytes(%q) = %q, want %q", tt.in, got, tt.want)
 			s, err := unquote([]byte(tt.in))
 			if err != nil || s != string(tt.want) {
-				t.Errorf("unquote(%q) = %q, %v, want %q, nil", tt.in, s, err, tt.want)
+				assert.Failf(t, "unexpected result", "unquote(%q) = %q, %v, want %q, nil", tt.in, s, err, tt.want)
 			}
 		})
 	}
@@ -195,17 +180,17 @@ func TestForkUnquoteErrors(t *testing.T) {
 
 func TestForkUnquoteSizeBounds(t *testing.T) {
 	if sized := maxUnquoteInitial + 2*utf8.UTFMax; sized < 0 || sized > math.MaxInt {
-		t.Errorf("maxUnquoteInitial %d overflows when sized: got %d", maxUnquoteInitial, sized)
+		assert.Failf(t, "unexpected result", "maxUnquoteInitial %d overflows when sized: got %d", maxUnquoteInitial, sized)
 	}
 
 	if grown := (maxUnquoteRegrow + utf8.UTFMax) * 2; grown < 0 || grown > math.MaxInt {
-		t.Errorf("maxUnquoteRegrow %d overflows when doubled: got %d", maxUnquoteRegrow, grown)
+		assert.Failf(t, "unexpected result", "maxUnquoteRegrow %d overflows when doubled: got %d", maxUnquoteRegrow, grown)
 	}
 }
 
 func TestForkIndentSizeBounds(t *testing.T) {
 	if factored := indentGrowthFactor * maxIndentHint; factored < 0 || factored > math.MaxInt {
-		t.Errorf("maxIndentHint %d overflows when multiplied: got %d", maxIndentHint, factored)
+		assert.Failf(t, "unexpected result", "maxIndentHint %d overflows when multiplied: got %d", maxIndentHint, factored)
 	}
 }
 
@@ -227,12 +212,9 @@ func TestForkQuoteChar(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		c := byte(i)
 		got, want := quoteChar(c), stdlib(c)
-		if got != want {
-			t.Errorf("quoteChar(%#02x) = %s, want %s", c, got, want)
-		}
-		if body := got[1 : len(got)-1]; strings.Count(body, `'`) != strings.Count(body, `\'`) {
-			t.Errorf("quoteChar(%#02x) = %s contains an unescaped quote", c, got)
-		}
+		assert.Equal(t, want, got, "quoteChar(%#02x) = %s, want %s", c, got, want)
+		body := got[1 : len(got)-1]
+		assert.Equal(t, strings.Count(body, `\'`), strings.Count(body, `'`), "quoteChar(%#02x) = %s contains an unescaped quote", c, got)
 	}
 }
 
@@ -259,12 +241,9 @@ func TestForkIntOrFloatKeepsOutOfRangeWholeNumbersAsFloat(t *testing.T) {
 			var got any
 			dec := NewDecoder(bytes.NewReader([]byte(tt.in)))
 			dec.SetNumberType(UnmarshalIntOrFloat)
-			if err := dec.Decode(&got); err != nil {
-				t.Fatalf("Decode error: %v", err)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Decode(%s) = %#v (%T), want %#v (%T)", tt.in, got, got, tt.want, tt.want)
-			}
+			err := dec.Decode(&got)
+			require.NoError(t, err, "Decode error")
+			assert.Equal(t, tt.want, got, "Decode(%s) = %#v (%T), want %#v (%T)", tt.in, got, got, tt.want, tt.want)
 		})
 	}
 }
@@ -282,30 +261,24 @@ func TestForkRejectsDuplicateConvertedMapKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Unmarshal([]byte(tt.in), tt.into()); err == nil {
-				t.Fatalf("Unmarshal(%s) accepted keys which convert to the same map key", tt.in)
-			}
+			err := Unmarshal([]byte(tt.in), tt.into())
+			require.Error(t, err, "Unmarshal(%s) accepted keys which convert to the same map key", tt.in)
 		})
 	}
 
 	t.Run("distinct keys", func(t *testing.T) {
 		got := map[int]string{}
-		if err := Unmarshal([]byte(`{"1":"a","2":"b"}`), &got); err != nil {
-			t.Fatalf("Unmarshal error: %v", err)
-		}
-		if want := (map[int]string{1: "a", 2: "b"}); !reflect.DeepEqual(got, want) {
-			t.Errorf("Unmarshal = %v, want %v", got, want)
-		}
+		err := Unmarshal([]byte(`{"1":"a","2":"b"}`), &got)
+		require.NoError(t, err, "Unmarshal error")
+		want := (map[int]string{1: "a", 2: "b"})
+		assert.Equal(t, want, got, "Unmarshal = %v, want %v", got, want)
 	})
 
 	t.Run("existing entries", func(t *testing.T) {
 		got := map[int]string{1: "old"}
-		if err := Unmarshal([]byte(`{"1":"new"}`), &got); err != nil {
-			t.Fatalf("Unmarshal error: %v", err)
-		}
-		if got[1] != "new" {
-			t.Errorf("Unmarshal left %q, want the decoded value to replace the existing one", got[1])
-		}
+		err := Unmarshal([]byte(`{"1":"new"}`), &got)
+		require.NoError(t, err, "Unmarshal error")
+		assert.Equal(t, "new", got[1])
 	})
 }
 
@@ -327,21 +300,18 @@ func TestForkRejectsInvalidUnicodeInSkippedValues(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var v target
 
-			if err := Unmarshal([]byte(input), &v); !errors.Is(err, ErrInvalidUnicode) {
-				t.Errorf("Unmarshal: got %v, want %v", err, ErrInvalidUnicode)
-			}
+			err := Unmarshal([]byte(input), &v)
+			assert.ErrorIs(t, err, ErrInvalidUnicode, "Unmarshal: got %v, want %v", err, ErrInvalidUnicode)
 
-			if err := NewDecoder(strings.NewReader(input)).Decode(&v); !errors.Is(err, ErrInvalidUnicode) {
-				t.Errorf("Decode: got %v, want %v", err, ErrInvalidUnicode)
-			}
+			err = NewDecoder(strings.NewReader(input)).Decode(&v)
+			assert.ErrorIs(t, err, ErrInvalidUnicode, "Decode: got %v, want %v", err, ErrInvalidUnicode)
 		})
 	}
 
 	var v target
 
-	if err := Unmarshal([]byte(`{"ignored":"😀 \\ \" é","A":"😀"}`), &v); err != nil {
-		t.Errorf("Unmarshal rejected valid escapes in skipped values: %v", err)
-	}
+	err := Unmarshal([]byte(`{"ignored":"😀 \\ \" é","A":"😀"}`), &v)
+	assert.NoError(t, err, "Unmarshal rejected valid escapes in skipped values")
 }
 
 // RFC 7493 Section 2.3.
@@ -362,21 +332,18 @@ func TestForkRejectsDuplicateKeysInSkippedValues(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var v target
 
-			if err := Unmarshal([]byte(input), &v); err == nil || !strings.Contains(err.Error(), "duplicate key") {
-				t.Errorf("Unmarshal: got %v, want a duplicate key error", err)
-			}
+			err := Unmarshal([]byte(input), &v)
+			assert.ErrorContains(t, err, "duplicate key", "Unmarshal: got %v, want a duplicate key error", err)
 
-			if err := NewDecoder(strings.NewReader(input)).Decode(&v); err == nil || !strings.Contains(err.Error(), "duplicate key") {
-				t.Errorf("Decode: got %v, want a duplicate key error", err)
-			}
+			err = NewDecoder(strings.NewReader(input)).Decode(&v)
+			assert.ErrorContains(t, err, "duplicate key", "Decode: got %v, want a duplicate key error", err)
 		})
 	}
 
 	var v target
 
-	if err := Unmarshal([]byte(`{"ignored":[{"k":1},{"k":2}],"A":{"k":{"k":1},"j":"k:"}}`), &v); err != nil {
-		t.Errorf("Unmarshal rejected the same key in distinct objects: %v", err)
-	}
+	err := Unmarshal([]byte(`{"ignored":[{"k":1},{"k":2}],"A":{"k":{"k":1},"j":"k:"}}`), &v)
+	assert.NoError(t, err, "Unmarshal rejected the same key in distinct objects")
 }
 
 type foldedKey string

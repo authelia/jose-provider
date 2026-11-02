@@ -21,12 +21,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"errors"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose"
-	"authelia.com/provider/jose/testutils/assert"
 )
 
 var (
@@ -67,21 +68,17 @@ func TestGetClaimsWithoutVerification(t *testing.T) {
 		c2 := &customClaims{}
 
 		err := tok.UnsafeClaimsWithoutVerification(c, c2)
-		if err != nil {
-			t.Errorf("Error not expected: %s", err)
-		}
+		assert.NoError(t, err, "Error not expected")
 		assert.Equal(t, "subject", c.Subject)
 		assert.Equal(t, "issuer", c.Issuer)
-		assert.EqualSlice(t, []string{"s1", "s2"}, c2.Scopes)
+		assert.Equal(t, []string{"s1", "s2"}, c2.Scopes)
 
 	}
 	tok, err = ParseEncrypted(hmacEncryptedToken, []jose.KeyAlgorithm{jose.DIRECT}, []jose.ContentEncryption{jose.A128GCM})
 	if assert.NoError(t, err, "Error parsing encrypted token.") {
 		c := Claims{}
 		err := tok.UnsafeClaimsWithoutVerification(c)
-		if err == nil {
-			t.Errorf("Error expected")
-		}
+		assert.Error(t, err, "Error expected")
 	}
 }
 
@@ -105,12 +102,12 @@ func TestDecodeTokenWithJWKS(t *testing.T) {
 		}
 
 		if assert.NoError(t, tok.Claims(jwks, &cl)) {
-			assert.EqualJSON(t, expected, cl)
+			assert.Equal(t, expected, cl)
 		}
 
 		cl = make(map[string]any)
 		if assert.NoError(t, tok.Claims(*jwks, &cl)) {
-			assert.EqualJSON(t, expected, cl)
+			assert.Equal(t, expected, cl)
 		}
 	}
 }
@@ -152,23 +149,23 @@ func TestDecodeToken(t *testing.T) {
 		if assert.NoError(t, tok.Claims(sharedKey, c, c2)) {
 			assert.Equal(t, "subject", c.Subject)
 			assert.Equal(t, "issuer", c.Issuer)
-			assert.EqualSlice(t, []string{"s1", "s2"}, c2.Scopes)
+			assert.Equal(t, []string{"s1", "s2"}, c2.Scopes)
 		}
 	}
-	assert.Equal(t, tok.Claims([]byte("invalid-secret")).Error(), "go-jose/go-jose: error in cryptographic primitive")
+	assert.Equal(t, "go-jose/go-jose: error in cryptographic primitive", tok.Claims([]byte("invalid-secret")).Error())
 
 	tok2, err := ParseSigned(rsaSignedToken, []jose.SignatureAlgorithm{jose.RS256})
 	if assert.NoError(t, err, "Error parsing encrypted token.") {
 		c := make(map[string]any)
 		if assert.NoError(t, tok2.Claims(&testPrivRSAKey1.PublicKey, &c)) {
-			assert.EqualJSON(t, map[string]any{
+			assert.Equal(t, map[string]any{
 				"sub":    "subject",
 				"iss":    "issuer",
 				"scopes": []any{"s1", "s2"},
 			}, c)
 		}
 	}
-	assert.Equal(t, tok.Claims(&testPrivRSAKey2.PublicKey).Error(), "go-jose/go-jose: error in cryptographic primitive")
+	assert.Equal(t, "go-jose/go-jose: error in cryptographic primitive", tok.Claims(&testPrivRSAKey2.PublicKey).Error())
 
 	tok3, err := ParseSigned(invalidPayloadSignedToken, []jose.SignatureAlgorithm{jose.HS256})
 	if assert.NoError(t, err, "Error parsing signed token.") {
@@ -176,7 +173,7 @@ func TestDecodeToken(t *testing.T) {
 	}
 
 	_, err = ParseSigned(invalidPartsSignedToken, []jose.SignatureAlgorithm{jose.HS256})
-	assert.Equal(t, err.Error(), "go-jose/go-jose: compact JWS format must have three parts")
+	assert.Equal(t, "go-jose/go-jose: compact JWS format must have three parts", err.Error())
 
 	tok4, err := ParseEncrypted(hmacEncryptedToken, []jose.KeyAlgorithm{jose.DIRECT}, []jose.ContentEncryption{jose.A128GCM})
 	if assert.NoError(t, err, "Error parsing encrypted token.") {
@@ -185,7 +182,7 @@ func TestDecodeToken(t *testing.T) {
 			assert.Equal(t, "foo", c.Subject)
 		}
 	}
-	assert.Equal(t, tok4.Claims([]byte("invalid-secret-key")).Error(), "go-jose/go-jose: error in cryptographic primitive")
+	assert.Equal(t, "go-jose/go-jose: error in cryptographic primitive", tok4.Claims([]byte("invalid-secret-key")).Error())
 
 	_, err = ParseEncrypted(rsaEncryptedToken, []jose.KeyAlgorithm{jose.RSA1_5}, []jose.ContentEncryption{jose.A128CBC_HS256})
 	assert.Error(t, err, "Expected error trying to parse token with symmetric encryption algorithm")
@@ -196,7 +193,7 @@ func TestDecodeToken(t *testing.T) {
 	}
 
 	_, err = ParseEncrypted(invalidPartsEncryptedToken, []jose.KeyAlgorithm{jose.DIRECT}, []jose.ContentEncryption{jose.A128GCM})
-	assert.Equal(t, err.Error(), "go-jose/go-jose: compact JWE format must have five parts")
+	assert.Equal(t, "go-jose/go-jose: compact JWE format must have five parts", err.Error())
 
 	tok7, err := ParseSignedAndEncrypted(signedAndEncryptedToken,
 		[]jose.KeyAlgorithm{jose.RSA1_5},
@@ -218,7 +215,7 @@ func TestDecodeToken(t *testing.T) {
 		[]jose.KeyAlgorithm{jose.DIRECT},
 		[]jose.ContentEncryption{jose.A128CBC_HS256},
 		[]jose.SignatureAlgorithm{jose.RS256})
-	assert.Equal(t, err.Error(), "go-jose/go-jose/jwt: expected content type to be JWT (cty header)")
+	assert.Equal(t, "go-jose/go-jose/jwt: expected content type to be JWT (cty header)", err.Error())
 }
 
 func TestTamperedJWT(t *testing.T) {
@@ -245,9 +242,7 @@ func TestTamperedJWT(t *testing.T) {
 
 	cl = Claims{}
 	err := tok.Claims(key, &cl)
-	if err == nil {
-		t.Error("Claims() on invalid token should fail")
-	}
+	assert.Error(t, err, "Claims() on invalid token should fail")
 }
 
 // RFC 7519 Section 7.2 step 10.
@@ -255,27 +250,19 @@ func TestClaimsRejectsAPayloadWhichIsNotAnObject(t *testing.T) {
 	key := []byte("0123456789ABCDEF0123456789ABCDEF")
 
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parse := func(t *testing.T, payload string) *JSONWebToken {
 		t.Helper()
 
 		obj, err := signer.Sign([]byte(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		serialized, err := obj.CompactSerialize()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		tok, err := ParseSigned(serialized, []jose.SignatureAlgorithm{jose.HS256})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		return tok
 	}
@@ -288,24 +275,21 @@ func TestClaimsRejectsAPayloadWhichIsNotAnObject(t *testing.T) {
 
 			var dest any
 
-			if err := tok.Claims(key, &claims); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("Claims(&Claims{}): got %v, want %v", err, ErrInvalidClaims)
-			}
+			err := tok.Claims(key, &claims)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "Claims(&Claims{}): got %v, want %v", err, ErrInvalidClaims)
 
-			if err := tok.Claims(key, &dest); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("Claims(&any): got %v, want %v", err, ErrInvalidClaims)
-			}
+			err = tok.Claims(key, &dest)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "Claims(&any): got %v, want %v", err, ErrInvalidClaims)
 
-			if err := tok.UnsafeClaimsWithoutVerification(&claims); !errors.Is(err, ErrInvalidClaims) {
-				t.Errorf("UnsafeClaimsWithoutVerification: got %v, want %v", err, ErrInvalidClaims)
-			}
+			err = tok.UnsafeClaimsWithoutVerification(&claims)
+			assert.ErrorIs(t, err, ErrInvalidClaims, "UnsafeClaimsWithoutVerification: got %v, want %v", err, ErrInvalidClaims)
 		})
 	}
 
 	var claims Claims
 
 	if err := parse(t, ` {"iss":"issuer"} `).Claims(key, &claims); err != nil || claims.Issuer != "issuer" {
-		t.Errorf("Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
+		assert.Failf(t, "unexpected result", "Claims: got %v and issuer %q for a claims set surrounded by whitespace", err, claims.Issuer)
 	}
 }
 
@@ -314,14 +298,10 @@ func TestParseSignedAndEncryptedAcceptsAsymmetricKeyAlgorithms(t *testing.T) {
 	sigKey := []byte("0123456789ABCDEF0123456789ABCDEF")
 
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: sigKey}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		alg    jose.KeyAlgorithm
@@ -344,34 +324,25 @@ func TestParseSignedAndEncryptedAcceptsAsymmetricKeyAlgorithms(t *testing.T) {
 			}
 
 			encrypter, err := jose.NewEncrypter(jose.A128GCM, recipient, (&jose.EncrypterOptions{}).WithContentType("JWT"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			token, err := SignedAndEncrypted(signer, encrypter).Claims(Claims{Issuer: "issuer"}).Serialize()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			nested, err := ParseSignedAndEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM}, []jose.SignatureAlgorithm{jose.HS256})
-			if err != nil {
-				t.Fatalf("ParseSignedAndEncrypted: %v", err)
-			}
+			require.NoError(t, err, "ParseSignedAndEncrypted")
 
 			inner, err := nested.Decrypt(tc.decKey)
-			if err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
+			require.NoError(t, err, "Decrypt")
 
 			var claims Claims
 
 			if err = inner.Claims(sigKey, &claims); err != nil || claims.Issuer != "issuer" {
-				t.Fatalf("Claims: got %v and issuer %q", err, claims.Issuer)
+				require.Failf(t, "unexpected result", "Claims: got %v and issuer %q", err, claims.Issuer)
 			}
 
-			if _, err = ParseEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM}); err == nil {
-				t.Error("ParseEncrypted accepted a key algorithm which does not authenticate the sender")
-			}
+			_, err = ParseEncrypted(token, []jose.KeyAlgorithm{tc.alg}, []jose.ContentEncryption{jose.A128GCM})
+			assert.Error(t, err, "ParseEncrypted accepted a key algorithm which does not authenticate the sender")
 		})
 	}
 }
@@ -381,23 +352,16 @@ func TestParseSignedRejectsUnencodedPayload(t *testing.T) {
 	key := []byte("0123456789ABCDEF0123456789ABCDEF")
 
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, (&jose.SignerOptions{}).WithBase64(false))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := signer.Sign([]byte(`{"sub":"subject"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	token, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if _, err = ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256}); !errors.Is(err, ErrUnencodedPayload) {
-		t.Errorf("ParseSigned: got %v, want %v", err, ErrUnencodedPayload)
-	}
+	_, err = ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256})
+	assert.ErrorIs(t, err, ErrUnencodedPayload, "ParseSigned: got %v, want %v", err, ErrUnencodedPayload)
 }
 
 func BenchmarkDecodeSignedToken(b *testing.B) {
@@ -422,23 +386,15 @@ func TestValidateKeyEncryptionAlgorithm(t *testing.T) {
 		jose.ECDH_ES, jose.ECDH_ES_A128KW, jose.ECDH_ES_A192KW, jose.ECDH_ES_A256KW,
 	} {
 		err := validateKeyEncryptionAlgorithm([]jose.KeyAlgorithm{alg})
-		if err == nil {
-			t.Errorf("expected error for %s, got none", alg)
-		}
-		if !strings.Contains(err.Error(), "asymmetric encryption algorithms not supported") {
-			t.Errorf("got wrong error for %s: %s", alg, err)
-		}
+		assert.Error(t, err, "expected error for %s, got none", alg)
+		assert.Contains(t, err.Error(), "asymmetric encryption algorithms not supported", "got wrong error for %s: %s", alg, err)
 	}
 	for _, alg := range []jose.KeyAlgorithm{
 		jose.PBES2_HS256_A128KW, jose.PBES2_HS384_A192KW, jose.PBES2_HS512_A256KW,
 	} {
 		err := validateKeyEncryptionAlgorithm([]jose.KeyAlgorithm{alg})
-		if err == nil {
-			t.Errorf("expected error for %s, got none", alg)
-		}
-		if !strings.Contains(err.Error(), "password-based encryption not supported") {
-			t.Errorf("got wrong error for %s: %s", alg, err)
-		}
+		assert.Error(t, err, "expected error for %s, got none", alg)
+		assert.Contains(t, err.Error(), "password-based encryption not supported", "got wrong error for %s: %s", alg, err)
 	}
 
 	for _, alg := range []jose.KeyAlgorithm{
@@ -448,8 +404,58 @@ func TestValidateKeyEncryptionAlgorithm(t *testing.T) {
 		jose.KeyAlgorithm("XYZ"),
 	} {
 		err := validateKeyEncryptionAlgorithm([]jose.KeyAlgorithm{alg})
-		if err != nil {
-			t.Errorf("expected success for %s, got %s", alg, err)
-		}
+		assert.NoError(t, err, "expected success for %s, got", alg)
 	}
+}
+
+func TestHMACSignedTokenRejectsInvalidSignature(t *testing.T) {
+	key := []byte(strings.Repeat("k", 32))
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: key}, nil)
+	require.NoError(t, err)
+
+	token, err := Signed(signer).Claims(Claims{Subject: "subject"}).Serialize()
+	require.NoError(t, err)
+
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+
+	// Flip a bit of the first signature character, which carries no unused bits, so the encoding stays canonical.
+	flipped := []byte(parts[2])
+	if flipped[0] == 'A' {
+		flipped[0] = 'B'
+	} else {
+		flipped[0] = 'A'
+	}
+
+	testCases := []struct {
+		name  string
+		token string
+		key   []byte
+	}{
+		{"WrongKey", token, []byte(strings.Repeat("x", 32))},
+		{"TamperedSignature", parts[0] + "." + parts[1] + "." + string(flipped), key},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := ParseSigned(tc.token, []jose.SignatureAlgorithm{jose.HS256})
+			require.NoError(t, err)
+
+			var claims Claims
+
+			assert.Error(t, parsed.Claims(tc.key, &claims))
+			assert.Empty(t, claims.Subject)
+		})
+	}
+
+	t.Run("ValidSignature", func(t *testing.T) {
+		parsed, err := ParseSigned(token, []jose.SignatureAlgorithm{jose.HS256})
+		require.NoError(t, err)
+
+		var claims Claims
+
+		require.NoError(t, parsed.Claims(key, &claims))
+		assert.Equal(t, "subject", claims.Subject)
+	})
 }

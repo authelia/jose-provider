@@ -4,13 +4,16 @@
 
 package json
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestTagParsing(t *testing.T) {
 	name, opts := parseTag("field,foobar,foo")
-	if name != "field" {
-		t.Fatalf("name = %q, want field", name)
-	}
+	require.Equal(t, "field", name, "name = %q, want field", name)
 	for _, tt := range []struct {
 		opt  string
 		want bool
@@ -19,8 +22,6 @@ func TestTagParsing(t *testing.T) {
 		{"foo", true},
 		{"bar", false},
 	} {
-		if opts.Contains(tt.opt) != tt.want {
-			t.Errorf("Contains(%q) = %v, want %v", tt.opt, !tt.want, tt.want)
-		}
+		assert.Equal(t, tt.want, opts.Contains(tt.opt), "Contains(%q) = %v, want %v", tt.opt, !tt.want, tt.want)
 	}
 }

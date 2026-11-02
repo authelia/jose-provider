@@ -17,13 +17,14 @@
 package josecipher
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"io"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInvalidInputs(t *testing.T) {
@@ -40,15 +41,11 @@ func TestInvalidInputs(t *testing.T) {
 
 	// Changed AAD, must fail
 	_, err := aead.Open(nil, nonce, ciphertext, []byte("INVALID"))
-	if err == nil {
-		t.Error("must detect invalid aad")
-	}
+	assert.Error(t, err, "must detect invalid aad")
 
 	// Empty ciphertext, must fail
 	_, err = aead.Open(nil, nonce, []byte{}, []byte("aad"))
-	if err == nil {
-		t.Error("must detect invalid/empty ciphertext")
-	}
+	assert.Error(t, err, "must detect invalid/empty ciphertext")
 
 	// Corrupt ciphertext, must fail
 	corrupt := make([]byte, len(ciphertext))
@@ -56,24 +53,18 @@ func TestInvalidInputs(t *testing.T) {
 	corrupt[0] ^= 0xFF
 
 	_, err = aead.Open(nil, nonce, corrupt, []byte("aad"))
-	if err == nil {
-		t.Error("must detect corrupt ciphertext")
-	}
+	assert.Error(t, err, "must detect corrupt ciphertext")
 
 	// Corrupt authtag, must fail
 	copy(corrupt, ciphertext)
 	corrupt[len(ciphertext)-1] ^= 0xFF
 
 	_, err = aead.Open(nil, nonce, corrupt, []byte("aad"))
-	if err == nil {
-		t.Error("must detect corrupt authtag")
-	}
+	assert.Error(t, err, "must detect corrupt authtag")
 
 	// Truncated data, must fail
 	_, err = aead.Open(nil, nonce, ciphertext[:10], []byte("aad"))
-	if err == nil {
-		t.Error("must detect corrupt authtag")
-	}
+	assert.Error(t, err, "must detect corrupt authtag")
 }
 
 func TestVectorsAESCBC128(t *testing.T) {
@@ -106,17 +97,12 @@ func TestVectorsAESCBC128(t *testing.T) {
 
 	enc, err := NewCBCHMAC(key, aes.NewCipher)
 	out := enc.Seal(nil, nonce, plaintext, aad)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 
-	if !bytes.Equal(out[:len(out)-16], expectedCiphertext) {
-		t.Error("Ciphertext did not match")
-	}
-	if !bytes.Equal(out[len(out)-16:], expectedAuthtag) {
-		t.Error("Auth tag did not match")
-	}
+	assert.Equal(t, expectedCiphertext, out[:len(out)-16], "Ciphertext did not match")
+	assert.Equal(t, expectedAuthtag, out[len(out)-16:], "Auth tag did not match")
 }
 
 func TestVectorsAESCBC256(t *testing.T) {
@@ -162,17 +148,12 @@ func TestVectorsAESCBC256(t *testing.T) {
 
 	enc, err := NewCBCHMAC(key, aes.NewCipher)
 	out := enc.Seal(nil, nonce, plaintext, aad)
-	if err != nil {
-		t.Error("Unable to encrypt:", err)
+	if !assert.NoError(t, err, "Unable to encrypt") {
 		return
 	}
 
-	if !bytes.Equal(out[:len(out)-32], expectedCiphertext) {
-		t.Error("Ciphertext did not match, got", out[:len(out)-32], "wanted", expectedCiphertext)
-	}
-	if !bytes.Equal(out[len(out)-32:], expectedAuthtag) {
-		t.Error("Auth tag did not match, got", out[len(out)-32:], "wanted", expectedAuthtag)
-	}
+	assert.Equal(t, expectedCiphertext, out[:len(out)-32])
+	assert.Equal(t, expectedAuthtag, out[len(out)-32:])
 }
 
 func TestAESCBCRoundtrip(t *testing.T) {
@@ -215,9 +196,7 @@ func RunRoundtrip(t *testing.T, key, nonce []byte) {
 	aad := []byte{4, 3, 2, 1}
 
 	result := aead.Seal(dst, nonce, plaintext, aad)
-	if !bytes.Equal(dst, result[:4]) {
-		t.Error("Existing data in dst not preserved")
-	}
+	assert.Equal(t, result[:4], dst, "Existing data in dst not preserved")
 
 	// Test pre-existing (empty) dst buffer with sufficient capacity
 	dst = make([]byte, 256)[:0]
@@ -226,9 +205,7 @@ func RunRoundtrip(t *testing.T, key, nonce []byte) {
 		panic(err)
 	}
 
-	if !bytes.Equal(result, plaintext) {
-		t.Error("Plaintext does not match output")
-	}
+	assert.Equal(t, plaintext, result, "Plaintext does not match output")
 }
 
 func TestAESCBCOverhead(t *testing.T) {
@@ -237,22 +214,19 @@ func TestAESCBCOverhead(t *testing.T) {
 		panic(err)
 	}
 
-	if aead.Overhead() != 32 {
-		t.Error("CBC-HMAC reports incorrect overhead value")
-	}
+	assert.Equal(t, 32, aead.Overhead(), "CBC-HMAC reports incorrect overhead value")
 }
 
 func TestPadding(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		slice := make([]byte, i)
 		padded := padBuffer(slice, 16)
-		if len(padded)%16 != 0 {
-			t.Error("failed to pad slice properly", i)
+		if !assert.Equal(t, 0, len(padded)%16, "failed to pad slice properly i=%v", i) {
 			return
 		}
 		unpadded, err := unpadBuffer(padded, 16)
 		if err != nil || len(unpadded) != i {
-			t.Error("failed to unpad slice properly", i)
+			assert.Failf(t, "unexpected result", "failed to unpad slice properly i=%v", i)
 			return
 		}
 	}
@@ -261,9 +235,7 @@ func TestPadding(t *testing.T) {
 func TestInvalidKey(t *testing.T) {
 	key := make([]byte, 30)
 	_, err := NewCBCHMAC(key, aes.NewCipher)
-	if err == nil {
-		t.Error("should not be able to instantiate CBC-HMAC with invalid key")
-	}
+	assert.Error(t, err, "should not be able to instantiate CBC-HMAC with invalid key")
 }
 
 func TestTruncatedCiphertext(t *testing.T) {
@@ -271,18 +243,14 @@ func TestTruncatedCiphertext(t *testing.T) {
 	nonce := make([]byte, 16)
 	data := make([]byte, 32)
 
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		t.Fatal(err)
-	}
+	_, err := io.ReadFull(rand.Reader, key)
+	require.NoError(t, err)
 
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		t.Fatal(err)
-	}
+	_, err = io.ReadFull(rand.Reader, nonce)
+	require.NoError(t, err)
 
 	aead, err := NewCBCHMAC(key, aes.NewCipher)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ctx := aead.(*cbcAEAD)
 	ct := aead.Seal(nil, nonce, data, nil)
@@ -293,9 +261,7 @@ func TestTruncatedCiphertext(t *testing.T) {
 
 	// Open should fail
 	_, err = aead.Open(nil, nonce, truncated, nil)
-	if err == nil {
-		t.Error("open on truncated ciphertext should fail")
-	}
+	assert.Error(t, err, "open on truncated ciphertext should fail")
 }
 
 func TestInvalidPaddingOpen(t *testing.T) {
@@ -306,27 +272,21 @@ func TestInvalidPaddingOpen(t *testing.T) {
 	plaintext := padBuffer(make([]byte, 28), aes.BlockSize)
 	plaintext[len(plaintext)-1] = 0xFF
 
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		t.Fatal(err)
-	}
+	_, err := io.ReadFull(rand.Reader, key)
+	require.NoError(t, err)
 
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		t.Fatal(err)
-	}
+	_, err = io.ReadFull(rand.Reader, nonce)
+	require.NoError(t, err)
 
 	// The AES key is the second half of the CBC-HMAC key
 	block, err := aes.NewCipher(key[len(key)/2:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	cbc := cipher.NewCBCEncrypter(block, nonce)
 	buffer := append([]byte{}, plaintext...)
 	cbc.CryptBlocks(buffer, buffer)
 
 	aead, err := NewCBCHMAC(key, aes.NewCipher)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx := aead.(*cbcAEAD)
 
 	// Mutated ciphertext, but with correct auth tag
@@ -336,17 +296,14 @@ func TestInvalidPaddingOpen(t *testing.T) {
 
 	// Open should fail (b/c of invalid padding, even though tag matches)
 	_, err = aead.Open(nil, nonce, ciphertext, nil)
-	if err == nil || !strings.Contains(err.Error(), "invalid padding") {
-		t.Error("no or unexpected error on open with invalid padding:", err)
-	}
+	assert.ErrorContains(t, err, "invalid padding", "no or unexpected error on open with invalid padding")
 }
 
 func TestInvalidPadding(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		slice := make([]byte, i)
 		padded := padBuffer(slice, 16)
-		if len(padded)%16 != 0 {
-			t.Error("failed to pad slice properly", i)
+		if !assert.Equal(t, 0, len(padded)%16, "failed to pad slice properly i=%v", i) {
 			return
 		}
 
@@ -359,16 +316,14 @@ func TestInvalidPadding(t *testing.T) {
 			mutated[len(mutated)-j] ^= 0xFF
 
 			_, err := unpadBuffer(mutated, 16)
-			if err == nil {
-				t.Error("unpad on invalid padding should fail", i)
+			if !assert.Error(t, err, "unpad on invalid padding should fail i=%v", i) {
 				return
 			}
 		}
 
 		// Test truncated padding
 		_, err := unpadBuffer(padded[:len(padded)-1], 16)
-		if err == nil {
-			t.Error("unpad on truncated padding should fail", i)
+		if !assert.Error(t, err, "unpad on truncated padding should fail i=%v", i) {
 			return
 		}
 	}
@@ -377,42 +332,34 @@ func TestInvalidPadding(t *testing.T) {
 func TestZeroLengthPadding(t *testing.T) {
 	data := make([]byte, 16)
 	_, err := unpadBuffer(data, 16)
-	if err == nil {
-		t.Error("padding with 0x00 should never be valid")
-	}
+	assert.Error(t, err, "padding with 0x00 should never be valid")
 }
 
 func TestEmptyBufferPadding(t *testing.T) {
 	for _, buffer := range [][]byte{nil, {}} {
-		if _, err := unpadBuffer(buffer, 16); err == nil {
-			t.Errorf("unpadBuffer(%v) must not accept an empty buffer", buffer)
-		}
+		_, err := unpadBuffer(buffer, 16)
+		assert.Error(t, err, "unpadBuffer(%v) must not accept an empty buffer", buffer)
 	}
 }
 
 func TestOpenEmptyCiphertextWithValidTag(t *testing.T) {
 	for _, keySize := range []int{32, 48, 64} {
 		key := make([]byte, keySize)
-		if _, err := io.ReadFull(rand.Reader, key); err != nil {
-			t.Fatal(err)
-		}
+		_, err := io.ReadFull(rand.Reader, key)
+		require.NoError(t, err)
 
 		aead, err := NewCBCHMAC(key, aes.NewCipher)
-		if err != nil {
-			t.Fatalf("NewCBCHMAC with a %d byte key: %v", keySize, err)
-		}
+		require.NoError(t, err, "NewCBCHMAC with a %d byte key", keySize)
 
 		nonce := make([]byte, aead.NonceSize())
-		if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-			t.Fatal(err)
-		}
+		_, err = io.ReadFull(rand.Reader, nonce)
+		require.NoError(t, err)
 
 		aad := []byte("aad")
 		tag := aead.(*cbcAEAD).computeAuthTag(aad, nonce, nil)
 
-		if _, err = aead.Open(nil, nonce, tag, aad); err == nil {
-			t.Errorf("Open with a %d byte key accepted an empty ciphertext, want an error", keySize)
-		}
+		_, err = aead.Open(nil, nonce, tag, aad)
+		assert.Error(t, err, "Open with a %d byte key accepted an empty ciphertext, want an error", keySize)
 	}
 }
 
@@ -565,25 +512,20 @@ func TestNewCBCHMACRejectsUnsupportedKeySize(t *testing.T) {
 
 	for _, size := range []int{2, 20, 34, 40, 128} {
 		aead, err := NewCBCHMAC(make([]byte, size*2), newBlockCipher)
-		if err == nil {
-			t.Errorf("a %d byte half-key was accepted, giving %T", size, aead)
-		}
+		assert.Error(t, err, "a %d byte half-key was accepted, giving %T", size, aead)
 	}
 
 	// An odd length has no halves. Rounding down gave an encryption key a byte longer than the integrity key and
 	// an auth tag sized from the shorter of the two, which is not the key the caller passed under any reading.
 	for _, size := range []int{33, 49, 65} {
 		aead, err := NewCBCHMAC(make([]byte, size), newBlockCipher)
-		if err == nil {
-			t.Errorf("a %d byte key was accepted, giving %T", size, aead)
-		}
+		assert.Error(t, err, "a %d byte key was accepted, giving %T", size, aead)
 	}
 
 	// The three the specification defines still work.
 	for _, size := range []int{16, 24, 32} {
-		if _, err := NewCBCHMAC(make([]byte, size*2), newBlockCipher); err != nil {
-			t.Errorf("a %d byte half-key was rejected: %v", size, err)
-		}
+		_, err := NewCBCHMAC(make([]byte, size*2), newBlockCipher)
+		assert.NoError(t, err, "a %d byte half-key was rejected", size)
 	}
 }
 

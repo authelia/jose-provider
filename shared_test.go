@@ -7,10 +7,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"math/big"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"authelia.com/provider/jose/json"
 )
@@ -26,9 +28,7 @@ func TestHeaderEqual(t *testing.T) {
 		Algorithm:    "test",
 		ExtraHeaders: map[HeaderKey]any{"kid": "1-2-3-4"},
 	}
-	if !reflect.DeepEqual(header1, header2) {
-		t.Fatalf("header1 and header2 are not equal, expected equal")
-	}
+	require.Equal(t, header2, header1, "header1 and header2 are not equal, expected equal")
 }
 
 func TestHeaderNotEqual(t *testing.T) {
@@ -42,9 +42,7 @@ func TestHeaderNotEqual(t *testing.T) {
 		Algorithm:    "test",
 		ExtraHeaders: map[HeaderKey]any{"kid": "9-9-9-9"},
 	}
-	if reflect.DeepEqual(header1, header2) {
-		t.Fatalf("header1 and header2 are equal, expected not equal")
-	}
+	require.NotEqual(t, header1, header2, "header1 and header2 are equal, expected not equal")
 }
 
 // getJWK extracts parsed "jwk" from the raw JSON.
@@ -64,21 +62,16 @@ func (parsed rawHeader) getJWK() (*JSONWebKey, error) {
 func TestPrivateEPKRejected(t *testing.T) {
 	epk := json.RawMessage(`{"kty":"EC","crv":"P-256","x":"AQAB","y":"AQAB","d":"AQAB"}`)
 	headers := rawHeader{headerEPK: &epk}
-	if _, err := headers.getEPK(); err == nil || !strings.Contains(err.Error(), "JWK contains private parameters") {
-		t.Errorf("expected private parameters error, got %v", err)
-	}
+	_, err := headers.getEPK()
+	assert.ErrorContains(t, err, "JWK contains private parameters", "expected private parameters error")
 }
 
 func TestMergeHeaders(t *testing.T) {
 	var dst, src rawHeader
 	err := json.Unmarshal([]byte(`{"empty":"","null":null,"zero":0,"false":false,"set":"dst"}`), &dst)
-	if err != nil {
-		t.Fatalf("unmarshaling dst: %s", err)
-	}
+	require.NoError(t, err, "unmarshaling dst")
 	err = json.Unmarshal([]byte(`{"empty":"src","null":"src","zero":"src","false":"src","set":"src","new":"src"}`), &src)
-	if err != nil {
-		t.Fatalf("unmarshaling src: %s", err)
-	}
+	require.NoError(t, err, "unmarshaling src")
 
 	dst.merge(&src)
 
@@ -91,8 +84,7 @@ func TestMergeHeaders(t *testing.T) {
 		"new":   `"src"`,
 	} {
 		v, ok := dst[k]
-		if !ok {
-			t.Errorf("merge() dropped %q, want %s", k, want)
+		if !assert.True(t, ok, "merge() dropped %q, want %s", k, want) {
 			continue
 		}
 		// A JSON null is stored as a present key with a nil value.
@@ -100,9 +92,7 @@ func TestMergeHeaders(t *testing.T) {
 		if v != nil {
 			got = string(*v)
 		}
-		if got != want {
-			t.Errorf("merge() set %q to %s, want %s", k, got, want)
-		}
+		assert.Equal(t, want, got, "merge() set %q to %s, want %s", k, got, want)
 	}
 }
 
@@ -124,13 +114,9 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			parent = template
 		}
 		der, err := x509.CreateCertificate(rand.Reader, template, parent, pub, rsaTestKey)
-		if err != nil {
-			t.Fatalf("CreateCertificate(%q) error = %v, want nil", subject, err)
-		}
+		require.NoError(t, err, "CreateCertificate(%q) error = %v, want nil", subject, err)
 		cert, err := x509.ParseCertificate(der)
-		if err != nil {
-			t.Fatalf("ParseCertificate(%q) error = %v, want nil", subject, err)
-		}
+		require.NoError(t, err, "ParseCertificate(%q) error = %v, want nil", subject, err)
 		return cert
 	}
 
@@ -206,17 +192,11 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			signer, err := NewSigner(SigningKey{Algorithm: RS256, Key: rsaTestKey}, &SignerOptions{
 				ExtraHeaders: map[HeaderKey]any{HeaderKey("x5c"): x5c},
 			})
-			if err != nil {
-				t.Fatalf("NewSigner() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "NewSigner() error = %v, want nil", err)
 			signed, err := signer.Sign([]byte("payload"))
-			if err != nil {
-				t.Fatalf("Sign() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "Sign() error = %v, want nil", err)
 			parsed, err := ParseSigned(signed.FullSerialize(), []SignatureAlgorithm{RS256})
-			if err != nil {
-				t.Fatalf("ParseSigned() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "ParseSigned() error = %v, want nil", err)
 
 			opts := x509.VerifyOptions{Roots: x509.NewCertPool()}
 			opts.Roots.AddCert(root)
@@ -227,9 +207,9 @@ func TestCertificatesOversizedRSA(t *testing.T) {
 			_, err = parsed.Signatures[0].Protected.Certificates(opts)
 			switch {
 			case tc.wantErr == "" && err != nil:
-				t.Errorf("Certificates() error = %v, want nil", err)
+				assert.Failf(t, "unexpected result", "Certificates() error = %v, want nil", err)
 			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
-				t.Errorf("Certificates() error = %v, want error containing %q", err, tc.wantErr)
+				assert.Failf(t, "unexpected result", "Certificates() error = %v, want error containing %q", err, tc.wantErr)
 			}
 		})
 	}
@@ -262,25 +242,20 @@ func TestParseProtectedHeader(t *testing.T) {
 			header, err := parseProtectedHeader(tc.in)
 			if tc.wantErr {
 				if err == nil || header != nil {
-					t.Fatalf("got header %v and error %v, want only an error", header, err)
+					require.Failf(t, "unexpected result", "got header %v and error %v, want only an error", header, err)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err, "unexpected error")
 			if tc.wantNil {
-				if header != nil {
-					t.Errorf("expected nil header, got %v", header)
-				}
+				assert.Nil(t, header, "expected nil header, got %v", header)
 				return
 			}
 			if header == nil || *header == nil {
-				t.Fatalf("expected non-nil header map, got %v", header)
+				require.Failf(t, "unexpected result", "expected non-nil header map, got %v", header)
 			}
-			if alg := string(header.getAlgorithm()); alg != tc.wantAlg {
-				t.Errorf("expected alg %q, got %q", tc.wantAlg, alg)
-			}
+			alg := string(header.getAlgorithm())
+			assert.Equal(t, tc.wantAlg, alg, "expected alg %q, got %q", tc.wantAlg, alg)
 		})
 	}
 }

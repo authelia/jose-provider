@@ -32,13 +32,13 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/assert"
-	"authelia.com/provider/jose/testutils/require"
 )
 
 // Test chain of two X.509 certificates
@@ -87,46 +87,24 @@ func TestCurveSize(t *testing.T) {
 	size256 := curveSize(elliptic.P256())
 	size384 := curveSize(elliptic.P384())
 	size521 := curveSize(elliptic.P521())
-	if size256 != 32 {
-		t.Error("P-256 have 32 bytes")
-	}
-	if size384 != 48 {
-		t.Error("P-384 have 48 bytes")
-	}
-	if size521 != 66 {
-		t.Error("P-521 have 66 bytes")
-	}
+	assert.Equal(t, 32, size256, "P-256 have 32 bytes")
+	assert.Equal(t, 48, size384, "P-384 have 48 bytes")
+	assert.Equal(t, 66, size521, "P-521 have 66 bytes")
 }
 
 func TestRoundtripRsaPrivate(t *testing.T) {
 	jwk, err := fromRsaPrivateKey(rsaTestKey)
-	if err != nil {
-		t.Error("problem constructing JWK from rsa key", err)
-	}
+	assert.NoError(t, err, "problem constructing JWK from rsa key")
 
 	rsa2, err := jwk.rsaPrivateKey()
-	if err != nil {
-		t.Error("problem converting RSA private -> JWK", err)
-	}
+	assert.NoError(t, err, "problem converting RSA private -> JWK")
 
-	if rsa2.N.Cmp(rsaTestKey.N) != 0 {
-		t.Error("RSA private N mismatch")
-	}
-	if rsa2.E != rsaTestKey.E {
-		t.Error("RSA private E mismatch")
-	}
-	if rsa2.D.Cmp(rsaTestKey.D) != 0 {
-		t.Error("RSA private D mismatch")
-	}
-	if len(rsa2.Primes) != 2 {
-		t.Error("RSA private roundtrip expected two primes")
-	}
-	if rsa2.Primes[0].Cmp(rsaTestKey.Primes[0]) != 0 {
-		t.Error("RSA private P mismatch")
-	}
-	if rsa2.Primes[1].Cmp(rsaTestKey.Primes[1]) != 0 {
-		t.Error("RSA private Q mismatch")
-	}
+	assert.Equal(t, 0, rsa2.N.Cmp(rsaTestKey.N), "RSA private N mismatch")
+	assert.Equal(t, rsaTestKey.E, rsa2.E, "RSA private E mismatch")
+	assert.Equal(t, 0, rsa2.D.Cmp(rsaTestKey.D), "RSA private D mismatch")
+	assert.Len(t, rsa2.Primes, 2, "RSA private roundtrip expected two primes")
+	assert.Equal(t, 0, rsa2.Primes[0].Cmp(rsaTestKey.Primes[0]), "RSA private P mismatch")
+	assert.Equal(t, 0, rsa2.Primes[1].Cmp(rsaTestKey.Primes[1]), "RSA private Q mismatch")
 }
 
 func TestRoundtripRsaPrivatePrecomputed(t *testing.T) {
@@ -135,34 +113,18 @@ func TestRoundtripRsaPrivatePrecomputed(t *testing.T) {
 	localKey.Precompute()
 
 	jwk, err := fromRsaPrivateKey(localKey)
-	if err != nil {
-		t.Error("problem constructing JWK from rsa key", err)
-	}
+	assert.NoError(t, err, "problem constructing JWK from rsa key")
 
 	rsa2, err := jwk.rsaPrivateKey()
-	if err != nil {
-		t.Error("problem converting RSA private -> JWK", err)
-	}
+	assert.NoError(t, err, "problem converting RSA private -> JWK")
 
-	if rsa2.Precomputed.Dp == nil {
-		t.Error("RSA private Dp nil")
-	}
-	if rsa2.Precomputed.Dq == nil {
-		t.Error("RSA private Dq nil")
-	}
-	if rsa2.Precomputed.Qinv == nil {
-		t.Error("RSA private Qinv nil")
-	}
+	assert.NotNil(t, rsa2.Precomputed.Dp, "RSA private Dp nil")
+	assert.NotNil(t, rsa2.Precomputed.Dq, "RSA private Dq nil")
+	assert.NotNil(t, rsa2.Precomputed.Qinv, "RSA private Qinv nil")
 
-	if rsa2.Precomputed.Dp.Cmp(localKey.Precomputed.Dp) != 0 {
-		t.Error("RSA private Dp mismatch")
-	}
-	if rsa2.Precomputed.Dq.Cmp(localKey.Precomputed.Dq) != 0 {
-		t.Error("RSA private Dq mismatch")
-	}
-	if rsa2.Precomputed.Qinv.Cmp(localKey.Precomputed.Qinv) != 0 {
-		t.Error("RSA private Qinv mismatch")
-	}
+	assert.Equal(t, 0, rsa2.Precomputed.Dp.Cmp(localKey.Precomputed.Dp), "RSA private Dp mismatch")
+	assert.Equal(t, 0, rsa2.Precomputed.Dq.Cmp(localKey.Precomputed.Dq), "RSA private Dq mismatch")
+	assert.Equal(t, 0, rsa2.Precomputed.Qinv.Cmp(localKey.Precomputed.Qinv), "RSA private Qinv mismatch")
 }
 
 func TestRsaPrivateInsufficientPrimes(t *testing.T) {
@@ -176,9 +138,7 @@ func TestRsaPrivateInsufficientPrimes(t *testing.T) {
 	}
 
 	_, err := fromRsaPrivateKey(&brokenRsaPrivateKey)
-	if err != ErrUnsupportedKeyType {
-		t.Error("expected unsupported key type error, got", err)
-	}
+	assert.Same(t, ErrUnsupportedKeyType, err, "expected unsupported key type error, got err=%v", err)
 }
 
 func TestRsaPrivateExcessPrimes(t *testing.T) {
@@ -196,59 +156,35 @@ func TestRsaPrivateExcessPrimes(t *testing.T) {
 	}
 
 	_, err := fromRsaPrivateKey(&brokenRsaPrivateKey)
-	if err != ErrUnsupportedKeyType {
-		t.Error("expected unsupported key type error, got", err)
-	}
+	assert.Same(t, ErrUnsupportedKeyType, err, "expected unsupported key type error, got err=%v", err)
 }
 
 func TestRoundtripEcPublic(t *testing.T) {
 	for i, ecTestKey := range []*ecdsa.PrivateKey{ecTestKey256, ecTestKey384, ecTestKey521} {
 		jwk, err := fromEcPublicKey(&ecTestKey.PublicKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		ec2, err := jwk.ecPublicKey()
-		if err != nil {
-			t.Error("problem converting ECDSA private -> JWK", i, err)
-		}
+		assert.NoError(t, err, "problem converting ECDSA private -> JWK i=%v", i)
 
-		if !reflect.DeepEqual(ec2.Curve, ecTestKey.Curve) {
-			t.Error("ECDSA private curve mismatch", i)
-		}
-		if ec2.X.Cmp(ecTestKey.X) != 0 {
-			t.Error("ECDSA X mismatch", i)
-		}
-		if ec2.Y.Cmp(ecTestKey.Y) != 0 {
-			t.Error("ECDSA Y mismatch", i)
-		}
+		assert.Equal(t, ecTestKey.Curve, ec2.Curve, "ECDSA private curve mismatch i=%v", i)
+		assert.Equal(t, 0, ec2.X.Cmp(ecTestKey.X), "ECDSA X mismatch i=%v", i)
+		assert.Equal(t, 0, ec2.Y.Cmp(ecTestKey.Y), "ECDSA Y mismatch i=%v", i)
 	}
 }
 
 func TestRoundtripEcPrivate(t *testing.T) {
 	for i, ecTestKey := range []*ecdsa.PrivateKey{ecTestKey256, ecTestKey384, ecTestKey521} {
 		jwk, err := fromEcPrivateKey(ecTestKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		ec2, err := jwk.ecPrivateKey()
-		if err != nil {
-			t.Fatalf("problem converting ECDSA private -> JWK for %#v: %s", ecTestKey, err)
-		}
+		require.NoError(t, err, "problem converting ECDSA private -> JWK for %#v", ecTestKey)
 
-		if !reflect.DeepEqual(ec2.Curve, ecTestKey.Curve) {
-			t.Error("ECDSA private curve mismatch", i)
-		}
-		if ec2.X.Cmp(ecTestKey.X) != 0 {
-			t.Error("ECDSA X mismatch", i)
-		}
-		if ec2.Y.Cmp(ecTestKey.Y) != 0 {
-			t.Error("ECDSA Y mismatch", i)
-		}
-		if ec2.D.Cmp(ecTestKey.D) != 0 {
-			t.Error("ECDSA D mismatch", i)
-		}
+		assert.Equal(t, ecTestKey.Curve, ec2.Curve, "ECDSA private curve mismatch i=%v", i)
+		assert.Equal(t, 0, ec2.X.Cmp(ecTestKey.X), "ECDSA X mismatch i=%v", i)
+		assert.Equal(t, 0, ec2.Y.Cmp(ecTestKey.Y), "ECDSA Y mismatch i=%v", i)
+		assert.Equal(t, 0, ec2.D.Cmp(ecTestKey.D), "ECDSA D mismatch i=%v", i)
 	}
 }
 
@@ -311,9 +247,7 @@ func TestRoundtripX509(t *testing.T) {
 			err = jwk2.UnmarshalJSON(jsonbar)
 			require.NoError(t, err)
 
-			if !reflect.DeepEqual(testCertificates, jwk2.Certificates) {
-				t.Error("Certificates not equal", c.jwk.Certificates, jwk2.Certificates)
-			}
+			assert.Equal(t, testCertificates, jwk2.Certificates, "Certificates not equal c.jwk.Certificates=%v jwk2.Certificates=%v", c.jwk.Certificates, jwk2.Certificates)
 
 			jsonbar2, err := jwk2.MarshalJSON()
 			require.NoError(t, err)
@@ -321,7 +255,7 @@ func TestRoundtripX509(t *testing.T) {
 			if !bytes.Equal(jsonbar, jsonbar2) {
 				t.Logf("Original JSON: %s", string(jsonbar))
 				t.Logf("New JSON: %s", string(jsonbar2))
-				t.Error("roundtrip should not lose information")
+				assert.Fail(t, "roundtrip should not lose information")
 			}
 		})
 	}
@@ -367,9 +301,7 @@ func TestRoundtripX509Hex(t *testing.T) {
 	var j1, j2 map[string]any
 	require.NoError(t, json.Unmarshal(js, &j1))
 	require.NoError(t, json.Unmarshal([]byte(output), &j2))
-	if !reflect.DeepEqual(j1, j2) {
-		t.Errorf("Not equal after round trip: '%v' '%v'", j1, j2)
-	}
+	assert.Equal(t, j2, j1, "Not equal after round trip: '%v' '%v'", j1, j2)
 }
 
 func TestCertificatesURL(t *testing.T) {
@@ -389,9 +321,7 @@ func TestCertificatesURL(t *testing.T) {
 	var j1, j2 map[string]any
 	require.NoError(t, json.Unmarshal(js, &j1))
 	require.NoError(t, json.Unmarshal([]byte(urlJWK), &j2))
-	if !reflect.DeepEqual(j1, j2) {
-		t.Errorf("Not equal after round trip: '%v' '%v'", j1, j2)
-	}
+	assert.Equal(t, j2, j1, "Not equal after round trip: '%v' '%v'", j1, j2)
 
 	var invalidURLJWK = `{
    "kty":"RSA",
@@ -400,7 +330,7 @@ func TestCertificatesURL(t *testing.T) {
    "x5u": "://example.com/keys.json"
 }`
 	err = jwk2.UnmarshalJSON([]byte(invalidURLJWK))
-	require.Equal(t, err.Error(), "go-jose/go-jose: invalid JWK, x5u header is invalid URL: parse \"://example.com/keys.json\": missing protocol scheme")
+	require.Equal(t, "go-jose/go-jose: invalid JWK, x5u header is invalid URL: parse \"://example.com/keys.json\": missing protocol scheme", err.Error())
 }
 
 func TestInvalidThumbprintsX509(t *testing.T) {
@@ -415,9 +345,7 @@ func TestInvalidThumbprintsX509(t *testing.T) {
 	}
 
 	_, err := jwk.MarshalJSON()
-	if err == nil {
-		t.Error("should not marshal JWK with too short thumbprints")
-	}
+	assert.Error(t, err, "should not marshal JWK with too short thumbprints")
 
 	// Mismatched (leaf has different sum)
 	sha1sum := sha1.Sum(nil)
@@ -426,9 +354,7 @@ func TestInvalidThumbprintsX509(t *testing.T) {
 	jwk.CertificateThumbprintSHA256 = sha256sum[:]
 
 	_, err = jwk.MarshalJSON()
-	if err == nil {
-		t.Error("should not marshal JWK with mismatched thumbprints")
-	}
+	assert.Error(t, err, "should not marshal JWK with mismatched thumbprints")
 
 	// Too short
 	shortThumbprints := []byte(`{
@@ -472,14 +398,10 @@ func TestInvalidThumbprintsX509(t *testing.T) {
 
 	var jwk2 JSONWebKey
 	err = jwk2.UnmarshalJSON(mismatchedThumbprints)
-	if err == nil {
-		t.Error("should not unmarshal JWK with mismatched thumbprints")
-	}
+	assert.Error(t, err, "should not unmarshal JWK with mismatched thumbprints")
 
 	err = jwk2.UnmarshalJSON(shortThumbprints)
-	if err == nil {
-		t.Error("should not unmarshal JWK with too short thumbprints")
-	}
+	assert.Error(t, err, "should not unmarshal JWK with too short thumbprints")
 }
 
 func TestKeyMismatchX509(t *testing.T) {
@@ -512,9 +434,7 @@ func TestKeyMismatchX509(t *testing.T) {
 
 		var jwk2 JSONWebKey
 		err := jwk2.UnmarshalJSON(raw)
-		if err == nil {
-			t.Error("should not unmarshal JWK with key/cert mismatch")
-		}
+		assert.Error(t, err, "should not unmarshal JWK with key/cert mismatch")
 	}
 }
 
@@ -540,35 +460,21 @@ func TestMarshalUnmarshal(t *testing.T) {
 			}
 
 			jsonbar, err := jwk.MarshalJSON()
-			if err != nil {
-				t.Error("problem marshaling", i, err)
-			}
+			assert.NoError(t, err, "problem marshaling i=%v", i)
 
 			var jwk2 JSONWebKey
 			err = jwk2.UnmarshalJSON(jsonbar)
-			if err != nil {
-				t.Fatal("problem unmarshalling", i, err)
-			}
+			require.NoError(t, err, "problem unmarshalling i=%v", i)
 
 			jsonbar2, err := jwk2.MarshalJSON()
-			if err != nil {
-				t.Fatal("problem marshaling", i, err)
-			}
+			require.NoError(t, err, "problem marshaling i=%v", i)
 
-			if !bytes.Equal(jsonbar, jsonbar2) {
-				t.Error("roundtrip should not lose information", i)
-			}
-			if jwk2.KeyID != kid {
-				t.Error("kid did not roundtrip JSON marshalling", i)
-			}
+			assert.Equal(t, jsonbar2, jsonbar, "roundtrip should not lose information i=%v", i)
+			assert.Equal(t, kid, jwk2.KeyID, "kid did not roundtrip JSON marshalling i=%v", i)
 
-			if jwk2.Algorithm != "foo" {
-				t.Error("alg did not roundtrip JSON marshalling", i)
-			}
+			assert.Equal(t, "foo", jwk2.Algorithm, "alg did not roundtrip JSON marshalling i=%v", i)
 
-			if jwk2.Use != use {
-				t.Error("use did not roundtrip JSON marshalling", i)
-			}
+			assert.Equal(t, use, jwk2.Use, "use did not roundtrip JSON marshalling i=%v", i)
 		}
 	}
 }
@@ -585,22 +491,18 @@ func TestMarshalNonPointer(t *testing.T) {
 	}`)
 	var parsedKey JSONWebKey
 	err := json.Unmarshal(keyJSON, &parsedKey)
-	if err != nil {
-		t.Errorf("Error unmarshalling key: %v", err)
+	if !assert.NoError(t, err, "Error unmarshalling key") {
 		return
 	}
 	ek := EmbedsKey{
 		Key: parsedKey,
 	}
 	out, err := json.Marshal(ek)
-	if err != nil {
-		t.Errorf("Error marshalling JSON: %v", err)
+	if !assert.NoError(t, err, "Error marshalling JSON") {
 		return
 	}
 	expected := "{\"Key\":{\"kty\":\"RSA\",\"n\":\"vd7rZIoTLEe-z1_8G1FcXSw9CQFEJgV4g9V277sER7yx5Qjz_Pkf2YVth6wwwFJEmzc0hoKY-MMYFNwBE4hQHw\",\"e\":\"AQAB\"}}"
-	if string(out) != expected {
-		t.Error("Failed to marshal embedded non-pointer JWK properly:", string(out))
-	}
+	assert.Equal(t, expected, string(out), "Failed to marshal embedded non-pointer JWK properly: %v", string(out))
 }
 
 func TestMarshalUnmarshalInvalid(t *testing.T) {
@@ -647,9 +549,7 @@ func TestMarshalUnmarshalInvalid(t *testing.T) {
 	for i, key := range keys {
 		jwk := JSONWebKey{Key: key}
 		_, err := jwk.MarshalJSON()
-		if err == nil {
-			t.Error("managed to serialize invalid key", i)
-		}
+		assert.Error(t, err, "managed to serialize invalid key i=%v", i)
 	}
 }
 
@@ -675,9 +575,7 @@ func TestWebKeyVectorsInvalid(t *testing.T) {
 	for _, key := range keys {
 		var jwk2 JSONWebKey
 		err := jwk2.UnmarshalJSON([]byte(key))
-		if err == nil {
-			t.Error("managed to parse invalid key:", key)
-		}
+		assert.Error(t, err, "managed to parse invalid key: %v", key)
 	}
 }
 
@@ -685,9 +583,7 @@ func TestWebKeyVectorsInvalid(t *testing.T) {
 func TestJWKUnsupported(t *testing.T) {
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(`{"kty": "XXX"}`))
-	if !errors.Is(err, ErrUnsupportedKeyType) {
-		t.Error("expected ErrUnsupportedKeyType, got:", err)
-	}
+	assert.Same(t, ErrUnsupportedKeyType, err, "expected ErrUnsupportedKeyType, got: %v", err)
 }
 
 // RFC 7517 Sections 4.2 and 4.4.
@@ -736,11 +632,9 @@ func TestSingleJWKUseAndAlgorithmAreEnforced(t *testing.T) {
 				t.Helper()
 
 				if tc.wantErr {
-					if !errors.Is(err, ErrUnsuitableKey) {
-						t.Errorf("%s: got %v, want %v", op, err, ErrUnsuitableKey)
-					}
+					assert.ErrorIs(t, err, ErrUnsuitableKey, "%s: got %v, want %v", op, err, ErrUnsuitableKey)
 				} else if err != nil {
-					t.Errorf("%s: %v", op, err)
+					assert.Failf(t, "unexpected result", "%s: %v", op, err)
 				}
 			}
 
@@ -767,9 +661,8 @@ func TestSingleJWKUseAndAlgorithmAreEnforced(t *testing.T) {
 
 	dirKey := JSONWebKey{Key: kekKey, Use: jwkUseSignature}
 
-	if _, err = NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: dirKey}, nil); !errors.Is(err, ErrUnsuitableKey) {
-		t.Errorf("NewEncrypter(dir): got %v, want %v", err, ErrUnsuitableKey)
-	}
+	_, err = NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: dirKey}, nil)
+	assert.ErrorIs(t, err, ErrUnsuitableKey, "NewEncrypter(dir): got %v, want %v", err, ErrUnsuitableKey)
 }
 
 // RFC 7518 Sections 2, 6.3.1.1 and 6.3.1.2.
@@ -811,9 +704,8 @@ func TestUnmarshalRSAJWKRejectsLeadingZeroOctets(t *testing.T) {
 			raw, err = json.Marshal(members)
 			require.NoError(t, err)
 
-			if err = jwk.UnmarshalJSON(raw); err == nil {
-				t.Errorf("UnmarshalJSON accepted %s with a leading zero octet", tc.member)
-			}
+			err = jwk.UnmarshalJSON(raw)
+			assert.Error(t, err, "UnmarshalJSON accepted %s with a leading zero octet", tc.member)
 		})
 	}
 }
@@ -833,9 +725,8 @@ func TestMarshalECPrivateKeyRejectsDOutOfRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			key := &ecdsa.PrivateKey{PublicKey: ecTestKey256.PublicKey, D: tc.d}
 
-			if _, err := (&JSONWebKey{Key: key}).MarshalJSON(); err == nil {
-				t.Error("MarshalJSON accepted an out of range d")
-			}
+			_, err := (&JSONWebKey{Key: key}).MarshalJSON()
+			assert.Error(t, err, "MarshalJSON accepted an out of range d")
 		})
 	}
 }
@@ -872,9 +763,7 @@ func TestParseCertificateChainRequiresCanonicalBase64(t *testing.T) {
 		}
 	}
 
-	if nonCanonical == "" {
-		t.Fatal("no non-canonical encoding of the certificate was found")
-	}
+	require.NotEqual(t, "", nonCanonical, "no non-canonical encoding of the certificate was found")
 
 	testCases := map[string]string{
 		"LineBreak":         encoded[:64] + "\n" + encoded[64:],
@@ -884,9 +773,8 @@ func TestParseCertificateChainRequiresCanonicalBase64(t *testing.T) {
 
 	for name, value := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := parseCertificateChain([]string{value}); err == nil {
-				t.Error("parseCertificateChain accepted a non-canonical encoding")
-			}
+			_, err := parseCertificateChain([]string{value})
+			assert.Error(t, err, "parseCertificateChain accepted a non-canonical encoding")
 		})
 	}
 }
@@ -936,18 +824,15 @@ func TestJWKKeyOps(t *testing.T) {
 
 			err = jwk.UnmarshalJSON(input)
 			if !tc.valid {
-				if err == nil {
-					t.Error("UnmarshalJSON accepted key_ops which RFC 7517 Section 4.3 does not permit")
-				}
+				assert.Error(t, err, "UnmarshalJSON accepted key_ops which RFC 7517 Section 4.3 does not permit")
 
 				keyOps := make([]string, len(tc.keyOps))
 				for i, op := range tc.keyOps {
 					keyOps[i], _ = op.(string)
 				}
 
-				if _, err = (JSONWebKey{Key: &ecTestKey256.PublicKey, Use: tc.use, KeyOps: keyOps}).MarshalJSON(); err == nil {
-					t.Error("MarshalJSON accepted key_ops which RFC 7517 Section 4.3 does not permit")
-				}
+				_, err = (JSONWebKey{Key: &ecTestKey256.PublicKey, Use: tc.use, KeyOps: keyOps}).MarshalJSON()
+				assert.Error(t, err, "MarshalJSON accepted key_ops which RFC 7517 Section 4.3 does not permit")
 
 				return
 			}
@@ -961,9 +846,7 @@ func TestJWKKeyOps(t *testing.T) {
 
 			require.NoError(t, json.Unmarshal(output, &got))
 
-			if !reflect.DeepEqual(got["key_ops"], tc.keyOps) {
-				t.Errorf("key_ops round tripped as %v, want %v", got["key_ops"], tc.keyOps)
-			}
+			assert.Equal(t, tc.keyOps, got["key_ops"])
 		})
 	}
 }
@@ -1006,9 +889,9 @@ func TestJWKKeyOpsAreEnforced(t *testing.T) {
 				t.Helper()
 
 				if want && err != nil {
-					t.Errorf("%s: %v", op, err)
+					assert.Failf(t, "unexpected result", "%s: %v", op, err)
 				} else if !want && !errors.Is(err, ErrUnsuitableKey) {
-					t.Errorf("%s: got %v, want %v", op, err, ErrUnsuitableKey)
+					assert.Failf(t, "unexpected result", "%s: got %v, want %v", op, err, ErrUnsuitableKey)
 				}
 			}
 
@@ -1066,13 +949,11 @@ func TestJWKKeyOpsFollowTheKeyManagementAlgorithm(t *testing.T) {
 			for _, op := range ops {
 				recipient.Key = JSONWebKey{Key: tc.encKey, KeyOps: []string{op}}
 
-				if _, err = NewEncrypter(A128GCM, recipient, nil); (err == nil) != (op == tc.encrypt) {
-					t.Errorf("NewEncrypter with key_ops %q: got %v", op, err)
-				}
+				_, err = NewEncrypter(A128GCM, recipient, nil)
+				assert.Equal(t, (op == tc.encrypt), (err == nil), "NewEncrypter with key_ops %q: got %v", op, err)
 
-				if _, err = jwe.Decrypt(JSONWebKey{Key: tc.decKey, KeyOps: []string{op}}); (err == nil) != (op == tc.decrypt) {
-					t.Errorf("Decrypt with key_ops %q: got %v", op, err)
-				}
+				_, err = jwe.Decrypt(JSONWebKey{Key: tc.decKey, KeyOps: []string{op}})
+				assert.Equal(t, (op == tc.decrypt), (err == nil), "Decrypt with key_ops %q: got %v", op, err)
 			}
 		})
 	}
@@ -1130,15 +1011,13 @@ func TestMarshalJWKRejectsKeysUnmarshalRejects(t *testing.T) {
 
 	for name, jwk := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if out, err := jwk.MarshalJSON(); err == nil {
-				t.Errorf("MarshalJSON wrote %s", out)
-			}
+			out, err := jwk.MarshalJSON()
+			assert.Error(t, err, "MarshalJSON wrote %s", out)
 		})
 	}
 
-	if _, err = (JSONWebKey{Key: otherKey, Certificates: []*x509.Certificate{otherCert}}).MarshalJSON(); err != nil {
-		t.Errorf("MarshalJSON rejected a key with its own certificate: %v", err)
-	}
+	_, err = (JSONWebKey{Key: otherKey, Certificates: []*x509.Certificate{otherCert}}).MarshalJSON()
+	assert.NoError(t, err, "MarshalJSON rejected a key with its own certificate")
 }
 
 func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
@@ -1161,13 +1040,10 @@ func TestJWKValidRejectsInconsistentKeys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			jwk := JSONWebKey{Key: key}
 
-			if jwk.Valid() {
-				t.Error("Valid reported an inconsistent key as valid")
-			}
+			assert.False(t, jwk.Valid(), "Valid reported an inconsistent key as valid")
 
-			if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
-				t.Error("Thumbprint computed a thumbprint for an inconsistent key")
-			}
+			_, err := jwk.Thumbprint(crypto.SHA256)
+			assert.Error(t, err, "Thumbprint computed a thumbprint for an inconsistent key")
 		})
 	}
 }
@@ -1179,24 +1055,19 @@ func TestRSAJWKRejectsInvalidExponent(t *testing.T) {
 			pub := &rsa.PublicKey{N: rsaTestKey.N, E: e}
 			jwk := JSONWebKey{Key: pub}
 
-			if jwk.Valid() {
-				t.Error("Valid reported the key as valid")
-			}
+			assert.False(t, jwk.Valid(), "Valid reported the key as valid")
 
-			if _, err := jwk.MarshalJSON(); err == nil {
-				t.Error("MarshalJSON accepted the key")
-			}
+			_, err := jwk.MarshalJSON()
+			assert.Error(t, err, "MarshalJSON accepted the key")
 
-			if _, err := jwk.Thumbprint(crypto.SHA256); err == nil {
-				t.Error("Thumbprint accepted the key")
-			}
+			_, err = jwk.Thumbprint(crypto.SHA256)
+			assert.Error(t, err, "Thumbprint accepted the key")
 
 			input := `{"kty":"RSA","n":"` + base64.RawURLEncoding.EncodeToString(rsaTestKey.N.Bytes()) +
 				`","e":"` + base64.RawURLEncoding.EncodeToString(big.NewInt(int64(e)).Bytes()) + `"}`
 
-			if err := jwk.UnmarshalJSON([]byte(input)); err == nil {
-				t.Error("UnmarshalJSON accepted the key")
-			}
+			err = jwk.UnmarshalJSON([]byte(input))
+			assert.Error(t, err, "UnmarshalJSON accepted the key")
 		})
 	}
 
@@ -1205,9 +1076,8 @@ func TestRSAJWKRejectsInvalidExponent(t *testing.T) {
 
 	var jwk JSONWebKey
 
-	if err := jwk.UnmarshalJSON([]byte(input)); err == nil {
-		t.Error("UnmarshalJSON accepted an exponent of 2^31")
-	}
+	err := jwk.UnmarshalJSON([]byte(input))
+	assert.Error(t, err, "UnmarshalJSON accepted an exponent of 2^31")
 }
 
 // Test vectors from RFC 7520
@@ -1341,9 +1211,7 @@ func TestWebKeyVectorsValid(t *testing.T) {
 	for _, key := range cookbookJWKs {
 		var jwk2 JSONWebKey
 		err := jwk2.UnmarshalJSON([]byte(key))
-		if err != nil {
-			t.Error("unable to parse valid key:", key, err)
-		}
+		assert.NoError(t, err, "unable to parse valid key: %v", key)
 	}
 }
 
@@ -1354,13 +1222,11 @@ func TestEd25519Serialization(t *testing.T) {
 	serialized, _ := json.Marshal(jwk)
 
 	var jwk2 JSONWebKey
-	if err := json.Unmarshal(serialized, &jwk2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(serialized, &jwk2))
 
-	assert.EqualSlice(t,
-		jwk.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey),
-		jwk2.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey))
+	assert.Equal(t,
+		jwk2.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey),
+		jwk.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey))
 }
 
 func TestPublicMapsKeyOpsToThePublicOperations(t *testing.T) {
@@ -1390,17 +1256,12 @@ func TestPublicMapsKeyOpsToThePublicOperations(t *testing.T) {
 
 			public := jwk.Public()
 
-			if !reflect.DeepEqual(public.KeyOps, tc.want) {
-				t.Errorf("Public().KeyOps = %#v, want %#v", public.KeyOps, tc.want)
-			}
+			assert.Equal(t, tc.want, public.KeyOps, "Public().KeyOps = %#v, want %#v", public.KeyOps, tc.want)
 
-			if !reflect.DeepEqual(jwk.KeyOps, tc.have) {
-				t.Errorf("KeyOps of the private key changed to %#v", jwk.KeyOps)
-			}
+			assert.Equal(t, tc.have, jwk.KeyOps, "KeyOps of the private key changed to %#v", jwk.KeyOps)
 
-			if _, err := public.MarshalJSON(); err != nil {
-				t.Errorf("MarshalJSON: %v", err)
-			}
+			_, err := public.MarshalJSON()
+			assert.NoError(t, err, "MarshalJSON")
 		})
 	}
 }
@@ -1409,34 +1270,24 @@ func TestPublicOfAKeyWithKeyOpsCanUndoItsWork(t *testing.T) {
 	signing := JSONWebKey{Key: ecTestKey256, Use: "sig", KeyOps: []string{"sign"}}
 
 	signer, err := NewSigner(SigningKey{Algorithm: ES256, Key: signing}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := signer.Sign([]byte("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if _, err = obj.Verify(signing.Public()); err != nil {
-		t.Errorf("Verify: %v", err)
-	}
+	_, err = obj.Verify(signing.Public())
+	assert.NoError(t, err, "Verify")
 
 	decrypting := JSONWebKey{Key: rsaTestKey, Use: "enc", KeyOps: []string{"unwrapKey"}}
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: RSA_OAEP_256, Key: decrypting.Public()}, nil)
-	if err != nil {
-		t.Fatalf("NewEncrypter: %v", err)
-	}
+	require.NoError(t, err, "NewEncrypter")
 
 	encrypted, err := encrypter.Encrypt([]byte("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if _, err = encrypted.Decrypt(decrypting); err != nil {
-		t.Errorf("Decrypt: %v", err)
-	}
+	_, err = encrypted.Decrypt(decrypting)
+	assert.NoError(t, err, "Decrypt")
 }
 
 type fakeOpaqueSigner struct {
@@ -1461,29 +1312,23 @@ func TestThumbprint(t *testing.T) {
 	for i, key := range cookbookJWKs {
 		var jwk2 JSONWebKey
 		err := jwk2.UnmarshalJSON([]byte(key))
-		if err != nil {
-			t.Error("unable to parse valid key:", key, err)
-		}
+		assert.NoError(t, err, "unable to parse valid key: %v", key)
 
 		tp, err := jwk2.Thumbprint(crypto.SHA256)
-		if err != nil {
-			t.Error("unable to compute thumbprint:", key, err)
-		}
+		assert.NoError(t, err, "unable to compute thumbprint: %v", key)
 
 		tpHex := hex.EncodeToString(tp)
 		if cookbookJWKThumbprints[i] != tpHex {
-			t.Error("incorrect thumbprint:", i, cookbookJWKThumbprints[i], tpHex)
+			assert.Failf(t, "unexpected result", "incorrect thumbprint: %v cookbookJWKThumbprints[i]=%v tpHex=%v", i, cookbookJWKThumbprints[i], tpHex)
 		}
 
 		if signer, ok := jwk2.Key.(crypto.Signer); ok {
 			jwk2.Key = &fakeOpaqueSigner{signer}
 			otp, err := jwk2.Thumbprint(crypto.SHA256)
-			if err != nil {
-				t.Error("unable to compute thumbprint with an OpaqueSigner:", key, err)
-			}
+			assert.NoError(t, err, "unable to compute thumbprint with an OpaqueSigner: %v", key)
 			otpHex := hex.EncodeToString(otp)
 			if cookbookJWKThumbprints[i] != otpHex {
-				t.Error("incorrect OpaqueSigner thumbprint:", i, cookbookJWKThumbprints[i], otpHex)
+				assert.Failf(t, "unexpected result", "incorrect OpaqueSigner thumbprint: %v cookbookJWKThumbprints[i]=%v otpHex=%v", i, cookbookJWKThumbprints[i], otpHex)
 			}
 		}
 	}
@@ -1497,21 +1342,13 @@ func TestMarshalUnmarshalJWKSet(t *testing.T) {
 	set.Keys = append(set.Keys, jwk2)
 
 	jsonbar, err := json.Marshal(&set)
-	if err != nil {
-		t.Error("problem marshalling set", err)
-	}
+	assert.NoError(t, err, "problem marshalling set")
 	var set2 JSONWebKeySet
 	err = json.Unmarshal(jsonbar, &set2)
-	if err != nil {
-		t.Fatal("problem unmarshalling set", err)
-	}
+	require.NoError(t, err, "problem unmarshalling set")
 	jsonbar2, err := json.Marshal(&set2)
-	if err != nil {
-		t.Fatal("problem marshalling set", err)
-	}
-	if !bytes.Equal(jsonbar, jsonbar2) {
-		t.Error("roundtrip should not lose information")
-	}
+	require.NoError(t, err, "problem marshalling set")
+	assert.Equal(t, jsonbar2, jsonbar, "roundtrip should not lose information")
 }
 
 // RFC 7517 Section 5 states that implementations SHOULD ignore JWKs within a JWK Set that use "kty" (key type) values
@@ -1606,7 +1443,7 @@ func TestJWKSetUnmarshalIgnoresUnusableKeys(t *testing.T) {
 
 			if tc.err != "" {
 				if assert.Error(t, err) {
-					assert.Equal(t, err.Error(), tc.err)
+					assert.Equal(t, tc.err, err.Error())
 				}
 
 				return
@@ -1620,7 +1457,7 @@ func TestJWKSetUnmarshalIgnoresUnusableKeys(t *testing.T) {
 				kids[i] = key.KeyID
 			}
 
-			assert.EqualSlice(t, kids, tc.kids)
+			assert.Equal(t, tc.kids, kids)
 		})
 	}
 }
@@ -1655,12 +1492,12 @@ func TestJWKSetMarshalKeysMemberIsAlwaysAnArray(t *testing.T) {
 			data, err := json.Marshal(tc.have)
 
 			require.NoError(t, err)
-			require.Equal(t, string(data), tc.expected)
+			require.Equal(t, tc.expected, string(data))
 
 			data, err = json.Marshal(&tc.have)
 
 			require.NoError(t, err)
-			require.Equal(t, string(data), tc.expected)
+			require.Equal(t, tc.expected, string(data))
 		})
 	}
 }
@@ -1672,12 +1509,8 @@ func TestJWKSetKey(t *testing.T) {
 	set.Keys = append(set.Keys, jwk1)
 	set.Keys = append(set.Keys, jwk2)
 	k := set.Key("ABCDEFG")
-	if len(k) != 1 {
-		t.Errorf("method should return slice with one key not %d", len(k))
-	}
-	if k[0].KeyID != "ABCDEFG" {
-		t.Error("method should return key with ID ABCDEFG")
-	}
+	assert.Len(t, k, 1, "method should return slice with one key not %d", len(k))
+	assert.Equal(t, "ABCDEFG", k[0].KeyID, "method should return key with ID ABCDEFG")
 }
 
 func TestJWKSymmetricKey(t *testing.T) {
@@ -1685,64 +1518,42 @@ func TestJWKSymmetricKey(t *testing.T) {
 	sample2 := `{"kty":"oct","k":"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow","kid":"HMAC key used in JWS spec Appendix A.1 example"}`
 
 	var jwk1 JSONWebKey
-	if err := json.Unmarshal([]byte(sample1), &jwk1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(sample1), &jwk1))
 
-	if jwk1.Algorithm != "A128KW" {
-		t.Errorf("expected Algorithm to be A128KW, but was '%s'", jwk1.Algorithm)
-	}
+	assert.Equal(t, "A128KW", jwk1.Algorithm, "expected Algorithm to be A128KW, but was '%s'", jwk1.Algorithm)
 	expected1 := fromHexBytes("19ac2082e1721ab58a6afec05f854a52")
-	if !bytes.Equal(jwk1.Key.([]byte), expected1) {
-		t.Errorf("expected Key to be '%s', but was '%s'", hex.EncodeToString(expected1), hex.EncodeToString(jwk1.Key.([]byte)))
-	}
+	assert.Equal(t, expected1, jwk1.Key.([]byte))
 
 	var jwk2 JSONWebKey
-	if err := json.Unmarshal([]byte(sample2), &jwk2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(sample2), &jwk2))
 
-	if jwk2.KeyID != "HMAC key used in JWS spec Appendix A.1 example" {
-		t.Errorf("expected KeyID to be 'HMAC key used in JWS spec Appendix A.1 example', but was '%s'", jwk2.KeyID)
-	}
+	assert.Equal(t, "HMAC key used in JWS spec Appendix A.1 example", jwk2.KeyID, "expected KeyID to be 'HMAC key used in JWS spec Appendix A.1 example', but was '%s'", jwk2.KeyID)
 	expected2 := fromHexBytes(`
     0323354b2b0fa5bc837e0665777ba68f5ab328e6f054c928a90f84b2d2502ebf
     d3fb5a92d20647ef968ab4c377623d223d2e2172052e4f08c0cd9af567d080a3`)
-	if !bytes.Equal(jwk2.Key.([]byte), expected2) {
-		t.Errorf("expected Key to be '%s', but was '%s'", hex.EncodeToString(expected2), hex.EncodeToString(jwk2.Key.([]byte)))
-	}
+	assert.Equal(t, expected2, jwk2.Key.([]byte))
 }
 
 func TestJWKSymmetricRoundtrip(t *testing.T) {
 	jwk1 := JSONWebKey{Key: []byte{1, 2, 3, 4}}
 	marshaled, err := jwk1.MarshalJSON()
-	if err != nil {
-		t.Error("failed to marshal valid JWK object", err)
-	}
+	assert.NoError(t, err, "failed to marshal valid JWK object")
 
 	var jwk2 JSONWebKey
 	err = jwk2.UnmarshalJSON(marshaled)
-	if err != nil {
-		t.Error("failed to unmarshal valid JWK object", err)
-	}
+	assert.NoError(t, err, "failed to unmarshal valid JWK object")
 
-	if !bytes.Equal(jwk1.Key.([]byte), jwk2.Key.([]byte)) {
-		t.Error("round-trip of symmetric JWK gave different raw keys")
-	}
+	assert.Equal(t, jwk2.Key.([]byte), jwk1.Key.([]byte), "round-trip of symmetric JWK gave different raw keys")
 }
 
 func TestJWKSymmetricInvalid(t *testing.T) {
 	invalid := JSONWebKey{}
 	_, err := invalid.MarshalJSON()
-	if err == nil {
-		t.Error("excepted error on marshaling invalid symmetric JWK object")
-	}
+	assert.Error(t, err, "excepted error on marshaling invalid symmetric JWK object")
 
 	var jwk JSONWebKey
 	err = jwk.UnmarshalJSON([]byte(`{"kty":"oct"}`))
-	if err == nil {
-		t.Error("excepted error on unmarshaling invalid symmetric JWK object")
-	}
+	assert.Error(t, err, "excepted error on unmarshaling invalid symmetric JWK object")
 }
 
 func TestJWKIsPublic(t *testing.T) {
@@ -1764,9 +1575,8 @@ func TestJWKIsPublic(t *testing.T) {
 
 	for _, tc := range cases {
 		k := &JSONWebKey{Key: tc.key}
-		if public := k.IsPublic(); public != tc.expectedIsPublic {
-			t.Errorf("expected IsPublic to return %t, got %t", tc.expectedIsPublic, public)
-		}
+		public := k.IsPublic()
+		assert.Equal(t, tc.expectedIsPublic, public, "expected IsPublic to return %t, got %t", tc.expectedIsPublic, public)
 	}
 }
 
@@ -1811,18 +1621,12 @@ func TestJWKValid(t *testing.T) {
 	for _, tc := range cases {
 		k := &JSONWebKey{Key: tc.key}
 		valid := k.Valid()
-		if valid != tc.expectedValidity {
-			t.Errorf("expected Valid to return %t, got %t", tc.expectedValidity, valid)
-		}
+		assert.Equal(t, tc.expectedValidity, valid, "expected Valid to return %t, got %t", tc.expectedValidity, valid)
 		if valid {
 			wasPublic := k.IsPublic()
 			p := k.Public() // all aforemention keys are asymmetric
-			if !p.Valid() {
-				t.Errorf("unable to derive public key from valid asymmetric key")
-			}
-			if wasPublic != k.IsPublic() {
-				t.Errorf("original key was touched during public key derivation")
-			}
+			assert.True(t, p.Valid(), "unable to derive public key from valid asymmetric key")
+			assert.Equal(t, k.IsPublic(), wasPublic, "original key was touched during public key derivation")
 		}
 	}
 }
@@ -1830,15 +1634,13 @@ func TestJWKValid(t *testing.T) {
 func TestJWKPublicTypedNil(t *testing.T) {
 	for _, key := range []any{(*ecdsa.PublicKey)(nil), (*rsa.PublicKey)(nil), (*ecdsa.PrivateKey)(nil), (*rsa.PrivateKey)(nil)} {
 		k := &JSONWebKey{Key: key, KeyID: "kid"}
-		if p := k.Public(); !reflect.DeepEqual(p, JSONWebKey{}) {
-			t.Errorf("expected an empty key from Public for %T, got %+v", key, p)
-		}
+		p := k.Public()
+		assert.Equal(t, JSONWebKey{}, p, "expected an empty key from Public for %T, got %+v", key, p)
 	}
 
 	k := &JSONWebKey{Key: &ecTestKey256.PublicKey, KeyID: "kid"}
-	if p := k.Public(); !reflect.DeepEqual(p, *k) {
-		t.Errorf("expected Public to return a public key unchanged, got %+v", p)
-	}
+	p := k.Public()
+	assert.Equal(t, *k, p, "expected Public to return a public key unchanged, got %+v", p)
 }
 
 func TestJWKBufferSizeCheck(t *testing.T) {
@@ -1849,9 +1651,8 @@ func TestJWKBufferSizeCheck(t *testing.T) {
 		"y":"ZaPcRZ3q_7T3h-Gwz2i-T2JjJXfj6YVGgKHcFz5zqmg"}`
 	var jwk JSONWebKey
 
-	if err := jwk.UnmarshalJSON([]byte(key)); err == nil {
-		t.Fatal("key should be invalid")
-	}
+	err := jwk.UnmarshalJSON([]byte(key))
+	require.Error(t, err, "key should be invalid")
 
 	jwk.Valid() // true
 	jwk.Thumbprint(crypto.SHA256)
@@ -1867,15 +1668,9 @@ func TestJWKPaddingPrivateX(t *testing.T) {
   }`
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(key))
-	if err == nil {
-		t.Errorf("Expected key with short x to fail unmarshalling")
-	}
-	if !strings.Contains(err.Error(), "wrong length for x") {
-		t.Errorf("Wrong error for short x, got %q", err)
-	}
-	if jwk.Valid() {
-		t.Errorf("Expected key to be invalid, but it was valid.")
-	}
+	assert.Error(t, err, "Expected key with short x to fail unmarshalling")
+	assert.Contains(t, err.Error(), "wrong length for x", "Wrong error for short x, got %q", err)
+	assert.False(t, jwk.Valid(), "Expected key to be invalid, but it was valid.")
 }
 
 func TestJWKPaddingPrivateY(t *testing.T) {
@@ -1888,15 +1683,9 @@ func TestJWKPaddingPrivateY(t *testing.T) {
   }`
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(key))
-	if err == nil {
-		t.Errorf("Expected key with short x to fail unmarshalling")
-	}
-	if !strings.Contains(err.Error(), "wrong length for y") {
-		t.Errorf("Wrong error for short y, got %q", err)
-	}
-	if jwk.Valid() {
-		t.Errorf("Expected key to be invalid, but it was valid.")
-	}
+	assert.Error(t, err, "Expected key with short x to fail unmarshalling")
+	assert.Contains(t, err.Error(), "wrong length for y", "Wrong error for short y, got %q", err)
+	assert.False(t, jwk.Valid(), "Expected key to be invalid, but it was valid.")
 }
 
 func TestJWKPaddingPrivateD(t *testing.T) {
@@ -1909,15 +1698,9 @@ func TestJWKPaddingPrivateD(t *testing.T) {
   }`
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(key))
-	if err == nil {
-		t.Errorf("Expected key with short x to fail unmarshalling")
-	}
-	if !strings.Contains(err.Error(), "wrong length for d") {
-		t.Errorf("Wrong error for short d, got %q", err)
-	}
-	if jwk.Valid() {
-		t.Errorf("Expected key to be invalid, but it was valid.")
-	}
+	assert.Error(t, err, "Expected key with short x to fail unmarshalling")
+	assert.Contains(t, err.Error(), "wrong length for d", "Wrong error for short d, got %q", err)
+	assert.False(t, jwk.Valid(), "Expected key to be invalid, but it was valid.")
 }
 
 func TestJWKPaddingX(t *testing.T) {
@@ -1929,15 +1712,9 @@ func TestJWKPaddingX(t *testing.T) {
   }`
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(key))
-	if err == nil {
-		t.Errorf("Expected key with short x to fail unmarshalling")
-	}
-	if !strings.Contains(err.Error(), "wrong length for x") {
-		t.Errorf("Wrong error for short x, got %q", err)
-	}
-	if jwk.Valid() {
-		t.Errorf("Expected key to be invalid, but it was valid.")
-	}
+	assert.Error(t, err, "Expected key with short x to fail unmarshalling")
+	assert.Contains(t, err.Error(), "wrong length for x", "Wrong error for short x, got %q", err)
+	assert.False(t, jwk.Valid(), "Expected key to be invalid, but it was valid.")
 }
 
 func TestJWKPaddingY(t *testing.T) {
@@ -1949,15 +1726,9 @@ func TestJWKPaddingY(t *testing.T) {
   }`
 	var jwk JSONWebKey
 	err := jwk.UnmarshalJSON([]byte(key))
-	if err == nil {
-		t.Errorf("Expected key with short y to fail unmarshalling")
-	}
-	if !strings.Contains(err.Error(), "wrong length for y") {
-		t.Errorf("Wrong error for short y, got %q", err)
-	}
-	if jwk.Valid() {
-		t.Errorf("Expected key to be invalid, but it was valid.")
-	}
+	assert.Error(t, err, "Expected key with short y to fail unmarshalling")
+	assert.Contains(t, err.Error(), "wrong length for y", "Wrong error for short y, got %q", err)
+	assert.False(t, jwk.Valid(), "Expected key to be invalid, but it was valid.")
 }
 
 // RFC 7518 Section 6.2.2.1 defines "d" as the private key scalar for the curve. A scalar of zero, or one at or beyond
@@ -1997,9 +1768,7 @@ func TestECRejectsPrivateKeyScalarOutOfRange(t *testing.T) {
 				return
 			}
 
-			if err == nil {
-				t.Fatalf("accepted EC private JWK with out of range d %s", raw)
-			}
+			require.Error(t, err, "accepted EC private JWK with out of range d %s", raw)
 		})
 	}
 }
@@ -2040,9 +1809,8 @@ func TestECRejectsPrivateKeyNotMatchingPublicKey(t *testing.T) {
 
 			require.NoError(t, json.Unmarshal(build(advertised.D), &jwk))
 
-			if err = json.Unmarshal(build(other.D), &jwk); err == nil {
-				t.Fatalf("accepted EC private JWK whose d does not match x and y")
-			}
+			err = json.Unmarshal(build(other.D), &jwk)
+			require.Error(t, err, "accepted EC private JWK whose d does not match x and y")
 		})
 	}
 }
@@ -2125,9 +1893,8 @@ func TestEd25519RejectsMalformedPublicJWK(t *testing.T) {
 
 			var jwk JSONWebKey
 
-			if err := json.Unmarshal(raw, &jwk); err == nil {
-				t.Fatalf("accepted malformed Ed25519 public JWK %s", raw)
-			}
+			err := json.Unmarshal(raw, &jwk)
+			require.Error(t, err, "accepted malformed Ed25519 public JWK %s", raw)
 		})
 	}
 }
@@ -2152,9 +1919,8 @@ func TestEd25519RejectsMalformedPrivateJWK(t *testing.T) {
 
 			var jwk JSONWebKey
 
-			if err := json.Unmarshal(raw, &jwk); err == nil {
-				t.Fatalf("accepted malformed Ed25519 private JWK %s", raw)
-			}
+			err := json.Unmarshal(raw, &jwk)
+			require.Error(t, err, "accepted malformed Ed25519 private JWK %s", raw)
 		})
 	}
 }
@@ -2175,9 +1941,7 @@ func TestEd25519RoundTripsValidJWK(t *testing.T) {
 
 			require.NoError(t, json.Unmarshal(data, &jwk))
 
-			if !reflect.DeepEqual(jwk.Key, tc.key) {
-				t.Errorf("round trip produced %v, want %v", jwk.Key, tc.key)
-			}
+			assert.Equal(t, tc.key, jwk.Key, "round trip produced %v, want %v", jwk.Key, tc.key)
 		})
 	}
 }
@@ -2218,13 +1982,9 @@ func TestJWKUnsupportedCurveIsMatchable(t *testing.T) {
 			var jwk JSONWebKey
 
 			err := jwk.UnmarshalJSON([]byte(tc.raw))
-			if err == nil {
-				t.Fatal("UnmarshalJSON accepted an unsupported curve")
-			}
+			require.Error(t, err, "UnmarshalJSON accepted an unsupported curve")
 
-			if !errors.Is(err, ErrUnsupportedEllipticCurve) {
-				t.Errorf("error %v does not match ErrUnsupportedEllipticCurve", err)
-			}
+			assert.ErrorIs(t, err, ErrUnsupportedEllipticCurve, "error %v does not match ErrUnsupportedEllipticCurve", err)
 		})
 	}
 }
@@ -2235,7 +1995,7 @@ func TestJWKUnsupportedCurveIsMatchable(t *testing.T) {
 func TestJWKThumbprintRejectsDegenerateRSAKey(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("Thumbprint panicked: %v", r)
+			assert.Failf(t, "unexpected result", "Thumbprint panicked: %v", r)
 		}
 	}()
 
@@ -2245,13 +2005,10 @@ func TestJWKThumbprintRejectsDegenerateRSAKey(t *testing.T) {
 		t.Skipf("key no longer parses, which is also an acceptable outcome: %v", err)
 	}
 
-	if key.Valid() {
-		t.Error("Valid reports a zero RSA key as usable")
-	}
+	assert.False(t, key.Valid(), "Valid reports a zero RSA key as usable")
 
-	if _, err := key.Thumbprint(crypto.SHA256); err == nil {
-		t.Error("Thumbprint accepted a zero RSA key, want an error")
-	}
+	_, err := key.Thumbprint(crypto.SHA256)
+	assert.Error(t, err, "Thumbprint accepted a zero RSA key, want an error")
 }
 
 func TestTryJWKSCandidateSelection(t *testing.T) {
@@ -2371,18 +2128,14 @@ func TestTryJWKSCandidateSelection(t *testing.T) {
 			if tc.expectErr != nil {
 				assert.ErrorIs(t, err, tc.expectErr)
 
-				if len(keys) != 0 {
-					t.Errorf("expected no candidate keys, got %d", len(keys))
-				}
+				assert.Empty(t, keys, "expected no candidate keys, got %d", len(keys))
 
 				return
 			}
 
 			require.NoError(t, err)
 
-			if len(keys) != tc.expected {
-				t.Errorf("candidate keys = %d, want %d", len(keys), tc.expected)
-			}
+			assert.Len(t, keys, tc.expected, "candidate keys = %d, want %d", len(keys), tc.expected)
 		})
 	}
 }
@@ -2392,11 +2145,9 @@ func TestTryJWKSPassesThroughNonSetKeys(t *testing.T) {
 
 	require.NoError(t, err)
 
-	if len(keys) != 1 {
-		t.Fatalf("candidate keys = %d, want 1", len(keys))
-	}
+	require.Len(t, keys, 1, "candidate keys = %d, want 1", len(keys))
 
-	assert.Equal(t, keys[0], any(&rsaTestKey.PublicKey))
+	assert.Equal(t, any(&rsaTestKey.PublicKey), keys[0])
 }
 
 func TestParseRSAKeyRejectsOversizedExponent(t *testing.T) {
@@ -2407,21 +2158,17 @@ func TestParseRSAKeyRejectsOversizedExponent(t *testing.T) {
 	}
 
 	var canonical JSONWebKey
-	if err := json.Unmarshal([]byte(key("AQAB")), &canonical); err != nil {
-		t.Fatalf("the ordinary exponent must still parse: %v", err)
-	}
+	err := json.Unmarshal([]byte(key("AQAB")), &canonical)
+	require.NoError(t, err, "the ordinary exponent must still parse")
 
-	if _, err := canonical.Thumbprint(crypto.SHA256); err != nil {
-		t.Fatalf("the ordinary key must still thumbprint: %v", err)
-	}
+	_, err = canonical.Thumbprint(crypto.SHA256)
+	require.NoError(t, err, "the ordinary key must still thumbprint")
 
 	for _, exponent := range []string{"AQAAAAAAAQAB", "AQAAAAAAAAAAAQAB"} {
 		var oversized JSONWebKey
 
 		err := json.Unmarshal([]byte(key(exponent)), &oversized)
-		if err == nil {
-			t.Errorf("an %d bit exponent was accepted as E=%d", len(exponent)*6, oversized.Key.(*rsa.PublicKey).E)
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -2431,9 +2178,7 @@ func TestParseRSAKeyRejectsOversizedExponent(t *testing.T) {
 // parsed input, since the parsers validate, but a library owes its callers an error rather than a panic.
 func TestThumbprintRejectsMalformedKeys(t *testing.T) {
 	valid, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name    string
@@ -2458,29 +2203,22 @@ func TestThumbprintRejectsMalformedKeys(t *testing.T) {
 			thumbprint, err := key.Thumbprint(crypto.SHA256)
 
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("Thumbprint returned %x, want an error", thumbprint)
-				}
+				require.Error(t, err, "Thumbprint returned %x, want an error", thumbprint)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("Thumbprint: %v", err)
-			}
+			require.NoError(t, err, "Thumbprint")
 
-			if len(thumbprint) != crypto.SHA256.Size() {
-				t.Errorf("thumbprint length = %d, want %d", len(thumbprint), crypto.SHA256.Size())
-			}
+			assert.Len(t, thumbprint, crypto.SHA256.Size())
 		})
 	}
 }
 
 func TestThumbprintDeclinesSymmetricKeys(t *testing.T) {
 	var parsed JSONWebKey
-	if err := json.Unmarshal([]byte(`{"kty":"oct","kid":"k1","k":"c3ltbWV0cmljLWtleQ"}`), &parsed); err != nil {
-		t.Fatalf("an oct key must still parse: %v", err)
-	}
+	err := json.Unmarshal([]byte(`{"kty":"oct","kid":"k1","k":"c3ltbWV0cmljLWtleQ"}`), &parsed)
+	require.NoError(t, err, "an oct key must still parse")
 
 	for name, key := range map[string]JSONWebKey{
 		"constructed": {Key: []byte("symmetric-key")},
@@ -2488,9 +2226,7 @@ func TestThumbprintDeclinesSymmetricKeys(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			thumbprint, err := key.Thumbprint(crypto.SHA256)
-			if !errors.Is(err, ErrSymmetricThumbprint) {
-				t.Fatalf("Thumbprint returned %x, %v; want %v", thumbprint, err, ErrSymmetricThumbprint)
-			}
+			require.ErrorIs(t, err, ErrSymmetricThumbprint, "Thumbprint returned %x, %v; want %v", thumbprint, err, ErrSymmetricThumbprint)
 		})
 	}
 }
@@ -2507,10 +2243,8 @@ func TestDSizeUsesTheGroupOrder(t *testing.T) {
 		Name:    "skewed",
 	}
 
-	if got, want := dSize(skewed), 32; got != want {
-		t.Errorf("dSize = %d, want %d (the order is %d bits, the field prime %d)",
-			got, want, skewed.N.BitLen(), skewed.P.BitLen())
-	}
+	got, want := dSize(skewed), 32
+	assert.Equal(t, want, got)
 
 	for curve, want := range map[elliptic.Curve]int{
 		elliptic.P256(): 32,
@@ -2518,7 +2252,7 @@ func TestDSizeUsesTheGroupOrder(t *testing.T) {
 		elliptic.P521(): 66,
 	} {
 		if got := dSize(curve); got != want {
-			t.Errorf("dSize(%s) = %d, want %d", curve.Params().Name, got, want)
+			assert.Failf(t, "unexpected result", "dSize(%s) = %d, want %d", curve.Params().Name, got, want)
 		}
 	}
 }
@@ -2529,21 +2263,15 @@ func TestParseCertificateChainIsBounded(t *testing.T) {
 		oversized[i] = "Zm9v"
 	}
 
-	if _, err := parseCertificateChain(oversized); err == nil {
-		t.Fatal("an unbounded chain was accepted")
-	} else if !strings.Contains(err.Error(), "too many certificates") {
-		t.Errorf("got %v, want the chain length to be what was rejected", err)
-	}
+	_, err := parseCertificateChain(oversized)
+	assert.ErrorContains(t, err, "too many certificates", "got %v, want the chain length to be what was rejected", err)
 
 	chain, err := json.Marshal(oversized)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	var key JSONWebKey
-	if err = json.Unmarshal([]byte(`{"kty":"oct","k":"c3ltbWV0cmljLWtleQ","x5c":`+string(chain)+`}`), &key); err == nil {
-		t.Error("a JWK with an unbounded x5c chain was accepted")
-	}
+	err = json.Unmarshal([]byte(`{"kty":"oct","k":"c3ltbWV0cmljLWtleQ","x5c":`+string(chain)+`}`), &key)
+	assert.Error(t, err, "a JWK with an unbounded x5c chain was accepted")
 }
 
 // RFC 7518 Section 6.3.2 requires that if any of the RSA private key parameters beyond "d" is present, all of them
@@ -2596,9 +2324,7 @@ func TestRSARejectsPartialCRTParameters(t *testing.T) {
 				return
 			}
 
-			if err == nil {
-				t.Fatalf("accepted RSA private JWK carrying only %v of dp, dq and qi", tc.present)
-			}
+			require.Error(t, err, "accepted RSA private JWK carrying only %v of dp, dq and qi", tc.present)
 		})
 	}
 }
@@ -2628,9 +2354,8 @@ func TestJWKRejectsEmptyKeyMaterial(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var jwk JSONWebKey
 
-			if err := json.Unmarshal([]byte(tc.raw), &jwk); err == nil {
-				t.Fatalf("accepted JWK without key material %s", tc.raw)
-			}
+			err := json.Unmarshal([]byte(tc.raw), &jwk)
+			require.Error(t, err, "accepted JWK without key material %s", tc.raw)
 		})
 	}
 
@@ -2663,7 +2388,7 @@ func TestJWKMethodsRejectMalformedInMemoryKeys(t *testing.T) {
 
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("%s panicked: %v", name, r)
+				require.Failf(t, "unexpected result", "%s panicked: %v", name, r)
 			}
 		}()
 
@@ -2675,23 +2400,18 @@ func TestJWKMethodsRejectMalformedInMemoryKeys(t *testing.T) {
 			jwk := JSONWebKey{Key: tc.key}
 
 			noPanic(t, "MarshalJSON", func() {
-				if _, err := jwk.MarshalJSON(); err == nil {
-					t.Error("marshaled a malformed key")
-				}
+				_, err := jwk.MarshalJSON()
+				assert.Error(t, err, "marshaled a malformed key")
 			})
 
 			noPanic(t, "Valid", func() {
-				if jwk.Valid() {
-					t.Error("reported a malformed key as valid")
-				}
+				assert.False(t, jwk.Valid(), "reported a malformed key as valid")
 			})
 
 			noPanic(t, "Public", func() {
 				public := jwk.Public()
 
-				if public.Valid() != tc.publicValid {
-					t.Errorf("public key valid = %t, want %t", public.Valid(), tc.publicValid)
-				}
+				assert.Equal(t, tc.publicValid, public.Valid())
 			})
 		})
 	}
@@ -2703,17 +2423,15 @@ func TestRSAMarshalRespectsMaxRSAModulusBits(t *testing.T) {
 	MaxRSAModulusBits = rsaTestKey.N.BitLen() - 1
 
 	for _, key := range []any{rsaTestKey, &rsaTestKey.PublicKey} {
-		if _, err := (JSONWebKey{Key: key}).MarshalJSON(); err == nil || !strings.Contains(err.Error(), "modulus too large") {
-			t.Errorf("MarshalJSON(%T) error = %v, want modulus too large", key, err)
-		}
+		_, err := (JSONWebKey{Key: key}).MarshalJSON()
+		assert.ErrorContains(t, err, "modulus too large", "MarshalJSON(%T) error = %v, want modulus too large", key, err)
 	}
 
 	MaxRSAModulusBits = rsaTestKey.N.BitLen()
 
 	for _, key := range []any{rsaTestKey, &rsaTestKey.PublicKey} {
-		if _, err := (JSONWebKey{Key: key}).MarshalJSON(); err != nil {
-			t.Errorf("MarshalJSON(%T) error = %v, want nil", key, err)
-		}
+		_, err := (JSONWebKey{Key: key}).MarshalJSON()
+		assert.NoError(t, err, "MarshalJSON(%T) error = %v, want nil", key, err)
 	}
 }
 
@@ -2824,7 +2542,7 @@ func TestRsaKeyChecks(t *testing.T) {
 			if tc.wantErr == "" {
 				assert.NoError(t, err)
 			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("expected error containing %q, got %v", tc.wantErr, err)
+				assert.Failf(t, "unexpected result", "expected error containing %q, got %v", tc.wantErr, err)
 			}
 		})
 	}
@@ -2836,17 +2554,14 @@ func TestUnmarshalPrivateJWKAllowed(t *testing.T) {
 
 	var jwk JSONWebKey
 	require.NoError(t, json.Unmarshal(raw, &jwk))
-	if _, ok := jwk.Key.(*rsa.PrivateKey); !ok {
-		t.Errorf("expected *rsa.PrivateKey, got %T", jwk.Key)
-	}
+	_, ok := jwk.Key.(*rsa.PrivateKey)
+	assert.True(t, ok, "expected *rsa.PrivateKey, got %T", jwk.Key)
 
 	var jwks JSONWebKeySet
 	require.NoError(t, json.Unmarshal([]byte(`{"keys":[`+string(raw)+`]}`), &jwks))
-	if len(jwks.Keys) != 1 {
-		t.Fatalf("expected 1 key, got %d", len(jwks.Keys))
-	}
+	require.Len(t, jwks.Keys, 1, "expected 1 key, got %d", len(jwks.Keys))
 	if _, ok := jwks.Keys[0].Key.(*rsa.PrivateKey); !ok {
-		t.Errorf("expected *rsa.PrivateKey, got %T", jwks.Keys[0].Key)
+		assert.Failf(t, "unexpected result", "expected *rsa.PrivateKey, got %T", jwks.Keys[0].Key)
 	}
 }
 
@@ -2864,11 +2579,9 @@ yg70Dqg+eRFqjGfnIpOIaCuIG8pzdHjyGGIqAAfqCVBSodW5DTSi/uX1Q6dZ
 IuHN0usihPOasHDj3tIIYDT66ltQibpAJucDHQPHBKlv0AyUdlAsAA==`))
 
 func TestKeyMismatchX509UnsupportedCertKey(t *testing.T) {
-	if ed448TestCertificate == nil {
-		t.Fatal("failed to parse Ed448 test certificate")
-	}
+	require.NotNil(t, ed448TestCertificate, "failed to parse Ed448 test certificate")
 	if ed448TestCertificate.PublicKey != nil {
-		t.Fatal("crypto/x509 decodes Ed448 public keys, test needs a certificate with an unsupported key type")
+		require.Fail(t, "crypto/x509 decodes Ed448 public keys, test needs a certificate with an unsupported key type")
 	}
 
 	x5c := base64.StdEncoding.EncodeToString(ed448TestCertificate.Raw)
@@ -2883,25 +2596,19 @@ func TestKeyMismatchX509UnsupportedCertKey(t *testing.T) {
 	} {
 		// MarshalJSON refuses to write a chain it cannot match, so the member is added afterwards.
 		raw, err := (JSONWebKey{Key: key}).MarshalJSON()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		var members map[string]any
-		if err = json.Unmarshal(raw, &members); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, json.Unmarshal(raw, &members))
 
 		members["x5c"] = []string{x5c}
 
-		if raw, err = json.Marshal(members); err != nil {
-			t.Fatal(err)
-		}
+		raw, err = json.Marshal(members)
+		require.NoError(t, err)
 
 		var jwk JSONWebKey
-		if err = jwk.UnmarshalJSON(raw); err == nil {
-			t.Errorf("should not unmarshal JWK with %T key and unsupported x5c key", key)
-		}
+		err = jwk.UnmarshalJSON(raw)
+		assert.Error(t, err, "should not unmarshal JWK with %T key and unsupported x5c key", key)
 	}
 }
 
@@ -2924,9 +2631,8 @@ func TestRSAPrivateKeyAppliesPublicKeyChecks(t *testing.T) {
 
 			tc.mutate(jwk)
 
-			if _, err = jwk.rsaPrivateKey(); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("expected error containing %q, got %v", tc.wantErr, err)
-			}
+			_, err = jwk.rsaPrivateKey()
+			assert.ErrorContains(t, err, tc.wantErr, "expected error containing %q, got", tc.wantErr)
 		})
 	}
 }

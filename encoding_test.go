@@ -22,6 +22,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDeflateRoundtrip(t *testing.T) {
@@ -37,26 +40,18 @@ func TestDeflateRoundtrip(t *testing.T) {
 		panic(err)
 	}
 
-	if !bytes.Equal(output, original) {
-		t.Error("Input and output do not match")
-	}
+	assert.Equal(t, original, output, "Input and output do not match")
 }
 
 func TestInvalidCompression(t *testing.T) {
 	_, err := compress("XYZ", []byte{})
-	if err == nil {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Error(t, err, "should not accept invalid algorithm")
 
 	_, err = decompress("XYZ", []byte{})
-	if err == nil {
-		t.Error("should not accept invalid algorithm")
-	}
+	assert.Error(t, err, "should not accept invalid algorithm")
 
 	_, err = decompress(DEFLATE, []byte{1, 2, 3, 4})
-	if err == nil {
-		t.Error("should not accept invalid data")
-	}
+	assert.Error(t, err, "should not accept invalid data")
 }
 
 // TestLargeZip tests that we can decompress a large input, so long as its
@@ -64,43 +59,29 @@ func TestInvalidCompression(t *testing.T) {
 func TestLargeZip(t *testing.T) {
 	input := new(bytes.Buffer)
 	_, err := io.CopyN(input, rand.Reader, 251_000)
-	if err != nil {
-		t.Fatalf("generating input: %s", err)
-	}
+	require.NoError(t, err, "generating input")
 	compressed, err := compress(DEFLATE, input.Bytes())
-	if err != nil {
-		t.Errorf("compressing: %s", err)
-	}
+	assert.NoError(t, err, "compressing")
 	t.Logf("compression ratio: %g", float64(len(input.Bytes()))/float64(len(compressed)))
 	_, err = decompress(DEFLATE, compressed)
-	if err != nil {
-		t.Errorf("decompressing large input with low compression ratio: %s", err)
-	}
+	assert.NoError(t, err, "decompressing large input with low compression ratio")
 }
 
 func TestZipBomb(t *testing.T) {
 	input := strings.Repeat("a", 251_000)
 	compressed, err := compress(DEFLATE, []byte(input))
-	if err != nil {
-		t.Errorf("compressing: %s", err)
-	}
+	assert.NoError(t, err, "compressing")
 	t.Logf("compression ratio: %d %g", len(compressed), float64(len(input))/float64(len(compressed)))
 	out, err := decompress(DEFLATE, compressed)
-	if err == nil {
-		t.Errorf("expected error decompressing zip bomb, got none. output size %d", len(out))
-	}
+	assert.Error(t, err, "expected error decompressing zip bomb, got none. output size %d", len(out))
 }
 
 func TestByteBufferTrim(t *testing.T) {
 	buf := newBufferFromInt(1)
-	if !bytes.Equal(buf.data, []byte{1}) {
-		t.Error("Byte buffer for integer '1' should contain [0x01]")
-	}
+	assert.Equal(t, []byte{1}, buf.data, "Byte buffer for integer '1' should contain [0x01]")
 
 	buf = newBufferFromInt(65537)
-	if !bytes.Equal(buf.data, []byte{1, 0, 1}) {
-		t.Error("Byte buffer for integer '65537' should contain [0x01, 0x00, 0x01]")
-	}
+	assert.Equal(t, []byte{1, 0, 1}, buf.data, "Byte buffer for integer '65537' should contain [0x01, 0x00, 0x01]")
 }
 
 func TestFixedSizeBuffer(t *testing.T) {
@@ -116,28 +97,18 @@ func TestFixedSizeBuffer(t *testing.T) {
 	buf3 := newFixedSizeBuffer(data3, 4)
 	buf4 := newFixedSizeBuffer(data4, 4)
 
-	if !bytes.Equal(buf0.data, []byte{0, 0, 0, 0}) {
-		t.Error("Invalid padded buffer for buf0")
-	}
-	if !bytes.Equal(buf1.data, []byte{0, 0, 0, 1}) {
-		t.Error("Invalid padded buffer for buf1")
-	}
-	if !bytes.Equal(buf2.data, []byte{0, 0, 1, 2}) {
-		t.Error("Invalid padded buffer for buf2")
-	}
-	if !bytes.Equal(buf3.data, []byte{0, 1, 2, 3}) {
-		t.Error("Invalid padded buffer for buf3")
-	}
-	if !bytes.Equal(buf4.data, []byte{1, 2, 3, 4}) {
-		t.Error("Invalid padded buffer for buf4")
-	}
+	assert.Equal(t, []byte{0, 0, 0, 0}, buf0.data, "Invalid padded buffer for buf0")
+	assert.Equal(t, []byte{0, 0, 0, 1}, buf1.data, "Invalid padded buffer for buf1")
+	assert.Equal(t, []byte{0, 0, 1, 2}, buf2.data, "Invalid padded buffer for buf2")
+	assert.Equal(t, []byte{0, 1, 2, 3}, buf3.data, "Invalid padded buffer for buf3")
+	assert.Equal(t, []byte{1, 2, 3, 4}, buf4.data, "Invalid padded buffer for buf4")
 }
 
 func TestFixedSizeBufferTooLarge(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Error("should not be able to create fixed size buffer with oversized data")
+			assert.Fail(t, "should not be able to create fixed size buffer with oversized data")
 		}
 	}()
 
@@ -147,24 +118,15 @@ func TestFixedSizeBufferTooLarge(t *testing.T) {
 func TestNilByteBuffer(t *testing.T) {
 	var buf *byteBuffer
 
-	if got := buf.bytes(); got != nil {
-		t.Errorf("bytes() = %v, want nil", got)
-	}
-	if got := buf.base64(); got != "" {
-		t.Errorf("base64() = %q, want empty string", got)
-	}
-	if got := buf.bigInt(); got.Sign() != 0 {
-		t.Errorf("bigInt() = %s, want 0", got)
-	}
-	if got, err := buf.toInt(); got != 0 || err != nil {
-		t.Errorf("toInt() = %d, %v, want 0, nil", got, err)
-	}
+	assert.Nil(t, buf.bytes())
+	assert.Equal(t, "", buf.base64())
+	assert.Equal(t, 0, buf.bigInt().Sign())
+
+	value, err := buf.toInt()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, value)
 
 	got, err := buf.MarshalJSON()
-	if err != nil {
-		t.Errorf("MarshalJSON() returned error: %s", err)
-	}
-	if string(got) != `""` {
-		t.Errorf("MarshalJSON() = %s, want %s", got, `""`)
-	}
+	assert.NoError(t, err, "MarshalJSON() returned error")
+	assert.Equal(t, `""`, string(got), "MarshalJSON() = %s, want %s", got, `""`)
 }

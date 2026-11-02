@@ -27,19 +27,19 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
-	"reflect"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	josecipher "authelia.com/provider/jose/cipher"
 	"authelia.com/provider/jose/json"
-	"authelia.com/provider/jose/testutils/require"
 )
 
 // We generate only a single RSA and EC key for testing, speeds up tests.
@@ -78,23 +78,13 @@ func TestCompressionError(t *testing.T) {
 		"tag":"S1j6wvSGtTUCXhED91lUGQ"
 	}`
 	jwe, err := ParseEncrypted(jweBytes, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	_, err = jwe.Decrypt(testKey)
-	if err == nil {
-		t.Fatal("expected error on decompression failure")
-	}
-	if !strings.Contains(err.Error(), "failed to decompress plaintext: flate: corrupt input") {
-		t.Errorf("expected flate error, got %s", err)
-	}
+	require.Error(t, err, "expected error on decompression failure")
+	assert.Contains(t, err.Error(), "failed to decompress plaintext: flate: corrupt input", "expected flate error, got %s", err)
 	_, _, _, err = jwe.DecryptMulti(testKey)
-	if err == nil {
-		t.Fatal("expected error on decompression failure")
-	}
-	if !strings.Contains(err.Error(), "failed to decompress plaintext: flate: corrupt input") {
-		t.Errorf("expected flate error, got %s", err)
-	}
+	require.Error(t, err, "expected error on decompression failure")
+	assert.Contains(t, err.Error(), "failed to decompress plaintext: flate: corrupt input", "expected flate error, got %s", err)
 }
 
 // RFC 7516 Section 5.1 and RFC 7518 Sections 4.6.1.1, 4.7.1 and 4.8.1.
@@ -120,42 +110,29 @@ func TestEncryptRejectsExtraHeadersTheOperationDetermines(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			encrypter, err := NewEncrypter(A128GCM, tc.recipient, (&EncrypterOptions{}).WithHeader(tc.header, "AAAAAAAAAAAAAAAA"))
 			if err != nil {
-				if !errors.Is(err, ErrReservedHeaderParameter) {
-					t.Fatalf("NewEncrypter: got %v, want %v", err, ErrReservedHeaderParameter)
-				}
+				require.ErrorIs(t, err, ErrReservedHeaderParameter, "NewEncrypter: got %v, want %v", err, ErrReservedHeaderParameter)
 
 				return
 			}
 
-			if _, err = encrypter.Encrypt([]byte("payload")); !errors.Is(err, ErrReservedHeaderParameter) {
-				t.Errorf("Encrypt: got %v, want %v", err, ErrReservedHeaderParameter)
-			}
+			_, err = encrypter.Encrypt([]byte("payload"))
+			assert.ErrorIs(t, err, ErrReservedHeaderParameter, "Encrypt: got %v, want %v", err, ErrReservedHeaderParameter)
 		})
 	}
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: kek}, (&EncrypterOptions{}).WithHeader(headerKeyID, "caller"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("payload"))
-	if err != nil {
-		t.Fatalf("Encrypt with a caller kid and no recipient kid: %v", err)
-	}
+	require.NoError(t, err, "Encrypt with a caller kid and no recipient kid")
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if parsed.Header.KeyID != "caller" {
-		t.Errorf("kid = %q, want %q", parsed.Header.KeyID, "caller")
-	}
+	assert.Equal(t, "caller", parsed.Header.KeyID)
 }
 
 func TestEncryptRejectsExtraHeadersTheRecipientRejects(t *testing.T) {
@@ -187,18 +164,16 @@ func TestEncryptRejectsExtraHeadersTheRecipientRejects(t *testing.T) {
 				return
 			}
 
-			if _, err = encrypter.Encrypt([]byte("payload")); err == nil {
-				t.Fatal("Encrypt accepted an extra header the recipient rejects")
-			}
+			_, err = encrypter.Encrypt([]byte("payload"))
+			require.Error(t, err, "Encrypt accepted an extra header the recipient rejects")
 
 			multi, err := NewMultiEncrypter(A128GCM, []Recipient{{Algorithm: A128KW, Key: key}, {Algorithm: A128KW, Key: key}}, opts)
 			if err != nil {
 				return
 			}
 
-			if _, err = multi.Encrypt([]byte("payload")); err == nil {
-				t.Fatal("Encrypt accepted an extra header the recipient rejects")
-			}
+			_, err = multi.Encrypt([]byte("payload"))
+			require.Error(t, err, "Encrypt accepted an extra header the recipient rejects")
 		})
 	}
 }
@@ -209,28 +184,19 @@ func TestEncryptExtraHeadersRoundTrip(t *testing.T) {
 	opts := (&EncrypterOptions{}).WithType("JWT").WithHeader("ext", map[string]any{"a": []any{1, "b"}})
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: key}, opts)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	object, err := encrypter.Encrypt([]byte("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	serialized, err := object.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if _, err = parsed.Decrypt(key); err != nil {
-		t.Fatal(err)
-	}
+	_, err = parsed.Decrypt(key)
+	require.NoError(t, err)
 }
 
 // RoundtripJWE encrypts some data and then decrypts it.
@@ -261,25 +227,17 @@ func RoundtripJWE(
 		rcpt = Recipient{Algorithm: keyAlg, Key: encryptionKey}
 	}
 	enc, err := NewEncrypter(encAlg, rcpt, &EncrypterOptions{Compression: compressionAlg})
-	if err != nil {
-		t.Fatalf("error on new encrypter: %s", err)
-	}
+	require.NoError(t, err, "error on new encrypter")
 
 	input := []byte("Lorem ipsum dolor sit amet")
 	obj, err := enc.EncryptWithAuthData(input, aad)
-	if err != nil {
-		t.Fatalf("error in encrypt: %s", err)
-	}
+	require.NoError(t, err, "error in encrypt")
 
 	msg, err := serializer(obj)
-	if err != nil {
-		t.Fatalf("error in serializer: %s", err)
-	}
+	require.NoError(t, err, "error in serializer")
 
 	parsed, err := ParseEncrypted(msg, []KeyAlgorithm{keyAlg}, []ContentEncryption{encAlg})
-	if err != nil {
-		t.Fatalf("error in parse: %s, on msg '%s'", err, msg)
-	}
+	require.NoError(t, err, "error in parse: %s, on msg '%s'", err, msg)
 
 	// (Maybe) mangle object
 	skip := corrupter(parsed)
@@ -296,9 +254,7 @@ func RoundtripJWE(
 		return fmt.Errorf("error on decrypt: %s", err)
 	}
 
-	if !bytes.Equal(input, output) {
-		t.Fatalf("Decrypted output does not match input, got '%s' but wanted '%s'", output, input)
-	}
+	require.Equal(t, input, output, "Decrypted output does not match input, got '%s' but wanted '%s'", output, input)
 
 	return nil
 }
@@ -335,9 +291,7 @@ func TestRoundtripsJWE(t *testing.T) {
 						t.Run(fmt.Sprintf("alg=%s,enc=%s,key=%d,zip=%s,serializer=%d", alg, enc, k, zip, i), func(t *testing.T) {
 							t.Parallel()
 							err := RoundtripJWE(t, alg, enc, zip, serializer, noCorruption, aads[i], key.enc, key.dec)
-							if err != nil {
-								t.Errorf("RoundtripJWE(): %s", err)
-							}
+							assert.NoError(t, err, "RoundtripJWE()")
 						})
 					}
 				}
@@ -415,9 +369,7 @@ func TestRoundtripsJWECorrupted(t *testing.T) {
 			if skip {
 				return true
 			}
-			if err := obj.protected.set(headerTag, tag); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, obj.protected.set(headerTag, tag))
 			return false
 		},
 	}
@@ -438,9 +390,7 @@ func TestRoundtripsJWECorrupted(t *testing.T) {
 							t.Run(fmt.Sprintf("alg=%s,enc=%s,key=%d,zip=%s,serializer=%d,corrupter=%d", alg, enc, k, zip, i, j), func(t *testing.T) {
 								t.Parallel()
 								err := RoundtripJWE(t, alg, enc, zip, serializer, corrupter, aads[i], key.enc, key.dec)
-								if err == nil {
-									t.Errorf("RoundtripJWE(): expected error, got none")
-								}
+								assert.Error(t, err, "RoundtripJWE(): expected error, got none")
 							})
 						}
 					}
@@ -455,9 +405,7 @@ func TestEncrypterWithJWKAndKeyIDByReference(t *testing.T) {
 		KeyID: "test-id",
 		Key:   []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 	}}, nil)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	ciphertext, _ := enc.Encrypt([]byte("Lorem ipsum dolor sit amet"))
 
@@ -467,12 +415,8 @@ func TestEncrypterWithJWKAndKeyIDByReference(t *testing.T) {
 	parsed1, _ := ParseEncrypted(serialized1, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 	parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 
-	if parsed1.Header.KeyID != "test-id" {
-		t.Errorf("expected message to have key id from JWK, but found '%s' instead", parsed1.Header.KeyID)
-	}
-	if parsed2.Header.KeyID != "test-id" {
-		t.Errorf("expected message to have key id from JWK, but found '%s' instead", parsed2.Header.KeyID)
-	}
+	assert.Equal(t, "test-id", parsed1.Header.KeyID)
+	assert.Equal(t, "test-id", parsed2.Header.KeyID)
 }
 
 func TestEncrypterWithJWKAndKeyIDByValue(t *testing.T) {
@@ -480,9 +424,7 @@ func TestEncrypterWithJWKAndKeyIDByValue(t *testing.T) {
 		KeyID: "test-id-value",
 		Key:   []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 	}}, nil)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	ciphertext, _ := enc.Encrypt([]byte("Lorem ipsum dolor sit amet"))
 
@@ -492,12 +434,8 @@ func TestEncrypterWithJWKAndKeyIDByValue(t *testing.T) {
 	parsed1, _ := ParseEncrypted(serialized1, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 	parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
 
-	if parsed1.Header.KeyID != "test-id-value" {
-		t.Errorf("expected message to have key id from JWK by value, but found '%s' instead", parsed1.Header.KeyID)
-	}
-	if parsed2.Header.KeyID != "test-id-value" {
-		t.Errorf("expected message to have key id from JWK by value, but found '%s' instead", parsed2.Header.KeyID)
-	}
+	assert.Equal(t, "test-id-value", parsed1.Header.KeyID)
+	assert.Equal(t, "test-id-value", parsed2.Header.KeyID)
 }
 
 func TestEncrypterWithBrokenRand(t *testing.T) {
@@ -529,16 +467,12 @@ func TestEncrypterWithBrokenRand(t *testing.T) {
 							rcpt = Recipient{Algorithm: keyAlg, Key: key.enc}
 						}
 						enc, err := NewEncrypter(encAlg, rcpt, nil)
-						if err != nil {
-							t.Fatalf("error on new encrypter: %s", err)
-						}
+						require.NoError(t, err, "error on new encrypter")
 
 						input := []byte("Lorem ipsum dolor sit amet")
 
 						_, err = enc.Encrypt(input)
-						if err == nil {
-							t.Fatalf("Encrypt should fail if rand is broken")
-						}
+						require.Error(t, err, "Encrypt should fail if rand is broken")
 					})
 				}
 			}
@@ -548,24 +482,16 @@ func TestEncrypterWithBrokenRand(t *testing.T) {
 
 func TestNewEncrypterErrors(t *testing.T) {
 	_, err := NewEncrypter("XYZ", Recipient{}, nil)
-	if err == nil {
-		t.Error("was able to instantiate encrypter with invalid cipher")
-	}
+	assert.Error(t, err, "was able to instantiate encrypter with invalid cipher")
 
 	_, err = NewMultiEncrypter("XYZ", []Recipient{}, nil)
-	if err == nil {
-		t.Error("was able to instantiate multi-encrypter with invalid cipher")
-	}
+	assert.Error(t, err, "was able to instantiate multi-encrypter with invalid cipher")
 
 	_, err = NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: nil}, nil)
-	if err == nil {
-		t.Error("was able to instantiate encrypter with invalid direct key")
-	}
+	assert.Error(t, err, "was able to instantiate encrypter with invalid direct key")
 
 	_, err = NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: nil}, nil)
-	if err == nil {
-		t.Error("was able to instantiate encrypter with invalid EC key")
-	}
+	assert.Error(t, err, "was able to instantiate encrypter with invalid EC key")
 }
 
 func TestMultiRecipientJWE(t *testing.T) {
@@ -584,49 +510,31 @@ func TestMultiRecipientJWE(t *testing.T) {
 
 	input := []byte("Lorem ipsum dolor sit amet")
 	obj, err := enc.Encrypt(input)
-	if err != nil {
-		t.Fatal("error in encrypt: ", err)
-	}
+	require.NoError(t, err, "error in encrypt")
 
 	msg := obj.FullSerialize()
 
 	parsed, err := ParseEncrypted(msg, []KeyAlgorithm{RSA_OAEP, A256GCMKW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal("error in parse: ", err)
-	}
+	require.NoError(t, err, "error in parse")
 
 	i, _, output, err := parsed.DecryptMulti(rsaTestKey)
-	if err != nil {
-		t.Fatal("error on decrypt with RSA: ", err)
-	}
+	require.NoError(t, err, "error on decrypt with RSA")
 
-	if i != 0 {
-		t.Fatal("recipient index should be 0 for RSA key")
-	}
+	require.Equal(t, 0, i, "recipient index should be 0 for RSA key")
 
-	if !bytes.Equal(input, output) {
-		t.Fatal("Decrypted output does not match input: ", output, input)
-	}
+	require.Equal(t, input, output, "Decrypted output does not match input: %v input=%v", output, input)
 
 	i, _, output, err = parsed.DecryptMulti(sharedKey)
-	if err != nil {
-		t.Fatal("error on decrypt with AES: ", err)
-	}
+	require.NoError(t, err, "error on decrypt with AES")
 
-	if i != 1 {
-		t.Fatal("recipient index should be 1 for shared key")
-	}
+	require.Equal(t, 1, i, "recipient index should be 1 for shared key")
 
-	if !bytes.Equal(input, output) {
-		t.Fatal("Decrypted output does not match input", output, input)
-	}
+	require.Equal(t, input, output, "Decrypted output does not match input output=%v input=%v", output, input)
 }
 
 func TestMultiRecipientErrors(t *testing.T) {
 	_, err := NewMultiEncrypter(A128GCM, []Recipient{}, nil)
-	if err == nil {
-		t.Error("should fail to instantiate with zero recipients")
-	}
+	assert.Error(t, err, "should fail to instantiate with zero recipients")
 }
 
 func TestEncrypterOptions(t *testing.T) {
@@ -643,12 +551,10 @@ func TestEncrypterOptions(t *testing.T) {
 	enc, err := NewEncrypter(A256GCM, Recipient{Algorithm: A256GCMKW, Key: sharedKey}, opts)
 	if err != nil {
 		fmt.Println(err)
-		t.Error("Failed to create encrypter")
+		assert.Fail(t, "Failed to create encrypter")
 	}
 
-	if !reflect.DeepEqual(*opts, enc.Options()) {
-		t.Error("Encrypter options do not match")
-	}
+	assert.Equal(t, enc.Options(), *opts, "Encrypter options do not match")
 }
 
 // Test that extra headers are generated and parsed in a round trip.
@@ -667,37 +573,27 @@ func TestEncrypterExtraHeaderInclusion(t *testing.T) {
 	enc, err := NewEncrypter(A256GCM, Recipient{Algorithm: A256GCMKW, Key: sharedKey}, opts)
 	if err != nil {
 		fmt.Println(err)
-		t.Error("Failed to create encrypter")
+		assert.Fail(t, "Failed to create encrypter")
 	}
 
-	if !reflect.DeepEqual(*opts, enc.Options()) {
-		t.Error("Encrypter options do not match")
-	}
+	assert.Equal(t, enc.Options(), *opts, "Encrypter options do not match")
 
 	input := []byte("Lorem ipsum dolor sit amet")
 	obj, err := enc.Encrypt(input)
-	if err != nil {
-		t.Fatal("error in encrypt: ", err)
-	}
+	require.NoError(t, err, "error in encrypt")
 
 	parsed, err := ParseEncrypted(obj.FullSerialize(), []KeyAlgorithm{A256GCMKW}, []ContentEncryption{A256GCM})
-	if err != nil {
-		t.Fatal("error in parse: ", err)
-	}
+	require.NoError(t, err, "error in parse")
 
 	output, err := parsed.Decrypt(sharedKey)
-	if err != nil {
-		t.Fatal("error on decrypt: ", err)
-	}
+	require.NoError(t, err, "error on decrypt")
 
-	if !bytes.Equal(input, output) {
-		t.Fatal("Decrypted output does not match input: ", output, input)
-	}
+	require.Equal(t, input, output, "Decrypted output does not match input: %v input=%v", output, input)
 
 	if parsed.Header.ExtraHeaders[HeaderType] != "JWT" ||
 		parsed.Header.ExtraHeaders[HeaderContentType] != "JWT" ||
 		parsed.Header.ExtraHeaders[HeaderKey("myCustomHeader")] != "xyz" {
-		t.Fatalf("Mismatch in extra headers: %#v", parsed.Header.ExtraHeaders)
+		require.Failf(t, "unexpected result", "Mismatch in extra headers: %#v", parsed.Header.ExtraHeaders)
 	}
 }
 
@@ -798,51 +694,31 @@ func TestPBES2JWKEncryption(t *testing.T) {
 	}
 
 	enc, err := NewEncrypter(A128CBC_HS256, rcpt, nil)
-	if err != nil {
-		t.Fatal("error on NewEncrypter:", err)
-	}
+	require.NoError(t, err, "error on NewEncrypter")
 
 	obj, err := enc.Encrypt(plaintext)
-	if err != nil {
-		t.Fatal("error on new Encrypt:", err)
-	}
+	require.NoError(t, err, "error on new Encrypt")
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatal("error on CompactSerialize")
-	}
+	require.NoError(t, err, "error on CompactSerialize")
 
 	jwe1, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128CBC_HS256})
-	if err != nil {
-		t.Fatal("error in ParseEncrypted")
-	}
+	require.NoError(t, err, "error in ParseEncrypted")
 
 	jwe2, err := ParseEncrypted(serializationReference, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128CBC_HS256})
-	if err != nil {
-		t.Fatal("error in ParseEncrypted")
-	}
+	require.NoError(t, err, "error in ParseEncrypted")
 
 	original1, err := jwe1.Decrypt(passphrase)
-	if err != nil {
-		t.Fatal("error in Decrypt:", err)
-	}
+	require.NoError(t, err, "error in Decrypt")
 
 	original2, err := jwe2.Decrypt(passphrase)
-	if err != nil {
-		t.Fatal("error in Decrypt reference:", err)
-	}
+	require.NoError(t, err, "error in Decrypt reference")
 
-	if !bytes.Equal(original1, original2) {
-		t.Error("decryption does not match reference decryption")
-	}
+	assert.Equal(t, original2, original1, "decryption does not match reference decryption")
 
-	if !bytes.Equal(plaintext, original1) {
-		t.Error("decryption does not match plaintext")
-	}
+	assert.Equal(t, original1, plaintext, "decryption does not match plaintext")
 
-	if !bytes.Equal(plaintext, original2) {
-		t.Error("reference decryption does not match plaintext")
-	}
+	assert.Equal(t, original2, plaintext, "reference decryption does not match plaintext")
 }
 
 // RFC 7518 Section 4.8.1.1 has the salt vary the key derived from one password. A generated salt was previously
@@ -863,9 +739,8 @@ func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
 		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000}, nil)
 		require.NoError(t, err)
 
-		if first, second := p2s(t, enc), p2s(t, enc); first == second {
-			t.Fatalf("expected a fresh p2s for each message, got %x twice", first)
-		}
+		first, second := p2s(t, enc), p2s(t, enc)
+		require.NotEqual(t, second, first, "expected a fresh p2s for each message, got %x twice", first)
 	})
 
 	t.Run("ShouldKeepASuppliedSalt", func(t *testing.T) {
@@ -874,8 +749,8 @@ func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
 		enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: "password", PBES2Count: 1000, PBES2Salt: salt}, nil)
 		require.NoError(t, err)
 
-		require.Equal(t, string(salt), p2s(t, enc))
-		require.Equal(t, string(salt), p2s(t, enc))
+		require.Equal(t, p2s(t, enc), string(salt))
+		require.Equal(t, p2s(t, enc), string(salt))
 	})
 
 	t.Run("ShouldEncryptConcurrently", func(t *testing.T) {
@@ -886,9 +761,8 @@ func TestPBES2SaltGeneratedPerMessage(t *testing.T) {
 
 		for range 4 {
 			wg.Go(func() {
-				if _, err := enc.Encrypt([]byte("hello")); err != nil {
-					t.Error(err)
-				}
+				_, err := enc.Encrypt([]byte("hello"))
+				assert.NoError(t, err)
 			})
 		}
 
@@ -914,9 +788,8 @@ func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name+"WhenEncrypting", func(t *testing.T) {
-			if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: tc.p2c, PBES2Salt: tc.p2s}, nil); err == nil {
-				t.Fatal("created a PBES2 encrypter outside the bounds for the salt or count")
-			}
+			_, err := NewEncrypter(A128GCM, Recipient{Algorithm: PBES2_HS256_A128KW, Key: password, PBES2Count: tc.p2c, PBES2Salt: tc.p2s}, nil)
+			require.Error(t, err, "created a PBES2 encrypter outside the bounds for the salt or count")
 		})
 
 		// TestRejectTooHighP2C covers decrypting above the maximum without deriving a key at that count.
@@ -941,9 +814,8 @@ func TestPBES2EnforcesMinimumSaltAndCount(t *testing.T) {
 			parsed, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
 			require.NoError(t, err)
 
-			if _, err = parsed.Decrypt(password); err == nil {
-				t.Fatal("decrypted a PBES2 message below the minimum salt or count")
-			}
+			_, err = parsed.Decrypt(password)
+			require.Error(t, err, "decrypted a PBES2 message below the minimum salt or count")
 		})
 	}
 
@@ -974,9 +846,7 @@ func TestEncrypterWithPBES2(t *testing.T) {
 				KeyID: "test-id",
 				Key:   key,
 			}}, nil)
-			if err != nil {
-				t.Error(err)
-			}
+			assert.NoError(t, err)
 
 			ciphertext, _ := enc.Encrypt(expected)
 
@@ -987,22 +857,14 @@ func TestEncrypterWithPBES2(t *testing.T) {
 			parsed2, _ := ParseEncrypted(serialized2, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
 
 			actual1, err := parsed1.Decrypt("password")
-			if err != nil {
-				t.Fatal("error on Decrypt:", err)
-			}
+			require.NoError(t, err, "error on Decrypt")
 
 			actual2, err := parsed2.Decrypt([]byte("password"))
-			if err != nil {
-				t.Fatal("error on Decrypt:", err)
-			}
+			require.NoError(t, err, "error on Decrypt")
 
-			if !bytes.Equal(actual1, expected) {
-				t.Errorf("error comparing decrypted message (%s) and expected (%s)", actual1, expected)
-			}
+			assert.Equal(t, expected, actual1, "error comparing decrypted message (%s) and expected (%s)", actual1, expected)
 
-			if !bytes.Equal(actual2, expected) {
-				t.Errorf("error comparing decrypted message (%s) and expected (%s)", actual2, expected)
-			}
+			assert.Equal(t, expected, actual2, "error comparing decrypted message (%s) and expected (%s)", actual2, expected)
 		}
 	}
 }
@@ -1028,20 +890,16 @@ func TestRejectTooHighP2C(t *testing.T) {
 		for _, input := range serialized {
 			t.Run(string(alg), func(t *testing.T) {
 				obj, err := ParseEncrypted(input, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 
 				headers := obj.mergedHeaders(&obj.recipients[0])
 
-				if _, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &obj.recipients[0], randomKeyGenerator{size: 16}); err == nil || !strings.Contains(err.Error(), "too high") {
-					t.Errorf("decryptKey: got %v, want an error for a P2C which is too high", err)
-				}
+				_, err = (&symmetricKeyCipher{key: []byte("password")}).decryptKey(headers, &obj.recipients[0], randomKeyGenerator{size: 16})
+				assert.ErrorContains(t, err, "too high", "decryptKey: got %v, want an error for a P2C which is too high", err)
 
 				for _, key := range []any{"password", []byte("password")} {
-					if _, err = obj.Decrypt(key); err == nil {
-						t.Errorf("Decrypt(%T) accepted a P2C which is too high", key)
-					}
+					_, err = obj.Decrypt(key)
+					assert.Error(t, err, "Decrypt(%T) accepted a P2C which is too high", key)
 				}
 			})
 		}
@@ -1072,9 +930,8 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 		obj, err := ParseEncrypted(build(5), []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
 		require.NoError(t, err)
 
-		if _, _, _, err = obj.DecryptMulti([]byte("password")); !errors.Is(err, ErrPBES2WorkLimit) {
-			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
-		}
+		_, _, _, err = obj.DecryptMulti([]byte("password"))
+		require.ErrorIs(t, err, ErrPBES2WorkLimit, "expected ErrPBES2WorkLimit, got %v", err)
 	})
 
 	t.Run("ShouldRejectManyKeysUnderOneKeyID", func(t *testing.T) {
@@ -1092,9 +949,8 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 		obj, err := ParseEncrypted(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128GCM})
 		require.NoError(t, err)
 
-		if _, err = obj.Decrypt(keys); !errors.Is(err, ErrPBES2WorkLimit) {
-			t.Fatalf("expected ErrPBES2WorkLimit, got %v", err)
-		}
+		_, err = obj.Decrypt(keys)
+		require.ErrorIs(t, err, ErrPBES2WorkLimit, "expected ErrPBES2WorkLimit, got %v", err)
 	})
 
 	t.Run("ShouldDecryptTheLastOfSeveralDefaultRecipients", func(t *testing.T) {
@@ -1116,7 +972,7 @@ func TestRejectTooMuchPBES2WorkPerMessage(t *testing.T) {
 
 		index, _, plaintext, err := parsed.DecryptMulti(passwords[len(passwords)-1])
 		require.NoError(t, err)
-		require.Equal(t, len(passwords)-1, index)
+		require.Equal(t, index, len(passwords)-1)
 		require.Equal(t, "hello", string(plaintext))
 	})
 }
@@ -1134,20 +990,15 @@ func TestDecryptRejectsTagOfWrongLength(t *testing.T) {
 			key := make([]byte, getContentCipher(enc).keySize())
 
 			encrypter, err := NewEncrypter(enc, Recipient{Algorithm: DIRECT, Key: key}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			obj, err := encrypter.Encrypt([]byte("hello world"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			obj.ciphertext, obj.tag = shift(obj.ciphertext, obj.tag)
 
-			if _, err = obj.Decrypt(key); err == nil {
-				t.Fatal("decrypted a message whose tag was lengthened from its ciphertext")
-			}
+			_, err = obj.Decrypt(key)
+			require.Error(t, err, "decrypted a message whose tag was lengthened from its ciphertext")
 		})
 	}
 
@@ -1158,33 +1009,24 @@ func TestDecryptRejectsTagOfWrongLength(t *testing.T) {
 			{Algorithm: A128GCMKW, Key: keys[0]},
 			{Algorithm: A128GCMKW, Key: keys[1]},
 		}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		obj, err := encrypter.Encrypt([]byte("hello world"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		// The key wrap tag travels in the recipient's unprotected header, outside the authenticated data.
 		recipient := &obj.recipients[0]
 
 		tag, err := recipient.header.getTag()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		encryptedKey, shifted := shift(recipient.encryptedKey, tag.bytes())
 		recipient.encryptedKey = encryptedKey
 
-		if err = recipient.header.set(headerTag, newBuffer(shifted)); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, recipient.header.set(headerTag, newBuffer(shifted)))
 
-		if _, _, _, err = obj.DecryptMulti(keys[0]); err == nil {
-			t.Fatal("unwrapped a key whose tag was lengthened from its encrypted key")
-		}
+		_, _, _, err = obj.DecryptMulti(keys[0])
+		require.Error(t, err, "unwrapped a key whose tag was lengthened from its encrypted key")
 	})
 }
 
@@ -1226,9 +1068,8 @@ func TestDecryptRejectsEncryptedKeyForDirectAlgorithms(t *testing.T) {
 			segments := strings.Split(token, ".")
 			segments[1] = base64.RawURLEncoding.EncodeToString([]byte("garbage"))
 
-			if _, err = parse(strings.Join(segments, ".")).Decrypt(tc.decryptKey); err == nil {
-				t.Fatal("decrypted a message carrying an encrypted key its algorithm does not use")
-			}
+			_, err = parse(strings.Join(segments, ".")).Decrypt(tc.decryptKey)
+			require.Error(t, err, "decrypted a message carrying an encrypted key its algorithm does not use")
 		})
 	}
 }
@@ -1263,11 +1104,11 @@ func TestDecryptSelectsKeyFromRecipientHeader(t *testing.T) {
 
 	plaintext, err := object.Decrypt(keys)
 	require.NoError(t, err)
-	require.Equal(t, string(expected), string(plaintext))
+	require.Equal(t, string(plaintext), string(expected))
 
 	_, _, plaintext, err = object.DecryptMulti(keys)
 	require.NoError(t, err)
-	require.Equal(t, string(expected), string(plaintext))
+	require.Equal(t, string(plaintext), string(expected))
 }
 
 func TestDecryptEmptyPlaintext(t *testing.T) {
@@ -1276,31 +1117,21 @@ func TestDecryptEmptyPlaintext(t *testing.T) {
 	testKeys := generateTestKeys(DIRECT, encAlg)
 	rcpt := Recipient{Algorithm: keyAlg, Key: testKeys[0].enc}
 	enc, err := NewEncrypter(encAlg, rcpt, nil)
-	if err != nil {
-		t.Fatalf("error on new encrypter: %s", err)
-	}
+	require.NoError(t, err, "error on new encrypter")
 
 	var plaintext []byte
 	obj, err := enc.EncryptWithAuthData(plaintext, nil)
-	if err != nil {
-		t.Fatalf("error in encrypt: %s", err)
-	}
+	require.NoError(t, err, "error in encrypt")
 
 	msg := obj.FullSerialize()
 
 	parsed, err := ParseEncryptedJSON(msg, []KeyAlgorithm{keyAlg}, []ContentEncryption{encAlg})
-	if err != nil {
-		t.Fatalf("error in parse: %s, on msg '%s'", err, msg)
-	}
+	require.NoError(t, err, "error in parse: %s, on msg '%s'", err, msg)
 
 	output, err := parsed.Decrypt(testKeys[0].dec)
-	if err != nil {
-		t.Fatalf("error on decrypt: %s", err)
-	}
+	require.NoError(t, err, "error on decrypt")
 
-	if !bytes.Equal(plaintext, output) {
-		t.Fatalf("Decrypted(): got %q, want %q", output, plaintext)
-	}
+	require.Equal(t, plaintext, output, "Decrypted(): got %q, want %q", output, plaintext)
 }
 
 type testKey struct {
@@ -1331,15 +1162,11 @@ func TestDirectEncryptionKeySizeCheck(t *testing.T) {
 
 	// AES-128 with 32-byte key should reject
 	_, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: key32}, nil)
-	if err != ErrInvalidKeySize {
-		t.Error("Should reject AES-128 with 32-byte key")
-	}
+	assert.Same(t, ErrInvalidKeySize, err, "Should reject AES-128 with 32-byte key")
 
 	// AES-256 with 16-byte key should reject
 	_, err = NewEncrypter(A256GCM, Recipient{Algorithm: DIRECT, Key: key16}, nil)
-	if err != ErrInvalidKeySize {
-		t.Error("Should reject AES-256 with 16-byte key")
-	}
+	assert.Same(t, ErrInvalidKeySize, err, "Should reject AES-256 with 16-byte key")
 }
 
 func generateTestKeys(keyAlg KeyAlgorithm, encAlg ContentEncryption) []testKey {
@@ -1770,19 +1597,13 @@ func TestDecryptRejectsContentEncryptionKeyOfIncorrectSize(t *testing.T) {
 			serialized := craftEncryptedCompact(t, tc.enc, tc.cek, tc.body, []byte("Lorem ipsum dolor sit amet"))
 
 			object, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{tc.enc})
-			if err != nil {
-				t.Fatalf("failed to parse crafted object: %v", err)
-			}
+			require.NoError(t, err, "failed to parse crafted object")
 
 			plaintext, err := object.Decrypt(rsaTestKey)
 
-			if err != ErrCryptoFailure {
-				t.Errorf("Decrypt() error = %v, want %v", err, ErrCryptoFailure)
-			}
+			assert.Same(t, ErrCryptoFailure, err, "Decrypt() error = %v, want %v", err, ErrCryptoFailure)
 
-			if plaintext != nil {
-				t.Errorf("Decrypt() plaintext = %q, want nil", plaintext)
-			}
+			assert.Nil(t, plaintext, "Decrypt() plaintext = %q, want nil", plaintext)
 		})
 	}
 }
@@ -1808,18 +1629,12 @@ func TestDecryptAcceptsContentEncryptionKeyOfCorrectSize(t *testing.T) {
 			serialized := craftEncryptedCompact(t, tc.enc, cek, tc.body, expected)
 
 			object, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{tc.enc})
-			if err != nil {
-				t.Fatalf("failed to parse crafted object: %v", err)
-			}
+			require.NoError(t, err, "failed to parse crafted object")
 
 			plaintext, err := object.Decrypt(rsaTestKey)
-			if err != nil {
-				t.Fatalf("Decrypt() error = %v, want nil", err)
-			}
+			require.NoError(t, err, "Decrypt() error = %v, want nil", err)
 
-			if !bytes.Equal(plaintext, expected) {
-				t.Errorf("Decrypt() plaintext = %q, want %q", plaintext, expected)
-			}
+			assert.Equal(t, expected, plaintext, "Decrypt() plaintext = %q, want %q", plaintext, expected)
 		})
 	}
 }
@@ -1833,9 +1648,7 @@ func TestDecryptMultiSkipsRecipientWithContentEncryptionKeyOfIncorrectSize(t *te
 	protected := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RSA-OAEP","enc":"A128CBC-HS256"}`))
 
 	parts, err := body.encrypt(cek, []byte(protected), expected)
-	if err != nil {
-		t.Fatalf("failed to encrypt plaintext: %v", err)
-	}
+	require.NoError(t, err, "failed to encrypt plaintext")
 
 	// The first recipient carries a key which halves to 15 bytes, for which there is no corresponding HMAC hash.
 	serialized := fmt.Sprintf(
@@ -1849,22 +1662,14 @@ func TestDecryptMultiSkipsRecipientWithContentEncryptionKeyOfIncorrectSize(t *te
 	)
 
 	object, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128CBC_HS256})
-	if err != nil {
-		t.Fatalf("failed to parse crafted object: %v", err)
-	}
+	require.NoError(t, err, "failed to parse crafted object")
 
 	index, _, plaintext, err := object.DecryptMulti(rsaTestKey)
-	if err != nil {
-		t.Fatalf("DecryptMulti() error = %v, want nil", err)
-	}
+	require.NoError(t, err, "DecryptMulti() error = %v, want nil", err)
 
-	if index != 1 {
-		t.Errorf("DecryptMulti() index = %d, want 1", index)
-	}
+	assert.Equal(t, 1, index, "DecryptMulti() index = %d, want 1", index)
 
-	if !bytes.Equal(plaintext, expected) {
-		t.Errorf("DecryptMulti() plaintext = %q, want %q", plaintext, expected)
-	}
+	assert.Equal(t, expected, plaintext, "DecryptMulti() plaintext = %q, want %q", plaintext, expected)
 }
 
 func TestValidateCEKSize(t *testing.T) {
@@ -1883,9 +1688,8 @@ func TestValidateCEKSize(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validateCEKSize(make([]byte, tc.size), tc.cipher); err != tc.err {
-				t.Errorf("validateCEKSize() error = %v, want %v", err, tc.err)
-			}
+			err := validateCEKSize(make([]byte, tc.size), tc.cipher)
+			assert.Equal(t, tc.err, err, "validateCEKSize() error = %v, want %v", err, tc.err)
 		})
 	}
 }
@@ -1894,9 +1698,8 @@ func mustRandomBytes(t *testing.T, n int) []byte {
 	t.Helper()
 
 	out := make([]byte, n)
-	if _, err := io.ReadFull(rand.Reader, out); err != nil {
-		t.Fatalf("failed to read random bytes: %v", err)
-	}
+	_, err := io.ReadFull(rand.Reader, out)
+	require.NoError(t, err, "failed to read random bytes")
 
 	return out
 }
@@ -1905,9 +1708,7 @@ func mustWrapKey(t *testing.T, cek []byte) []byte {
 	t.Helper()
 
 	out, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, &rsaTestKey.PublicKey, cek, []byte{})
-	if err != nil {
-		t.Fatalf("failed to wrap content encryption key: %v", err)
-	}
+	require.NoError(t, err, "failed to wrap content encryption key")
 
 	return out
 }
@@ -1918,16 +1719,13 @@ func craftEncryptedCompact(t *testing.T, enc ContentEncryption, cek []byte, body
 	protected := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RSA-OAEP","enc":"` + string(enc) + `"}`))
 
 	encryptedKey, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, &rsaTestKey.PublicKey, cek, []byte{})
-	if err != nil {
-		t.Fatalf("failed to wrap content encryption key: %v", err)
-	}
+	require.NoError(t, err, "failed to wrap content encryption key")
 
 	parts := &aeadParts{iv: make([]byte, 16), ciphertext: make([]byte, 16), tag: make([]byte, 16)}
 
 	if body != nil {
-		if parts, err = body.encrypt(cek, []byte(protected), plaintext); err != nil {
-			t.Fatalf("failed to encrypt plaintext: %v", err)
-		}
+		parts, err = body.encrypt(cek, []byte(protected), plaintext)
+		require.NoError(t, err, "failed to encrypt plaintext")
 	}
 
 	return strings.Join([]string{
@@ -1944,14 +1742,10 @@ func TestJWEUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 		Algorithm: RSA_OAEP,
 		Key:       &rsaTestKey.PublicKey,
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ciphertext, err := encrypter.Encrypt([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	header := map[string]interface{}{
 		"kid":    "attacker",
@@ -1963,17 +1757,11 @@ func TestJWEUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 	serialized := injectJWEHeader(t, ciphertext.FullSerialize(), "unprotected", header)
 
 	parsed, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	plaintext, err := parsed.Decrypt(rsaTestKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(plaintext) != "Lorem ipsum dolor sit amet" {
-		t.Fatalf("plaintext = %q", plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "plaintext = %q", plaintext)
 
 	// The unprotected kid must remain usable as a key selection hint, as selecting the wrong key merely fails.
 	keySet := JSONWebKeySet{
@@ -1981,25 +1769,14 @@ func TestJWEUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 	}
 
 	plaintext, err = parsed.Decrypt(keySet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(plaintext) != "Lorem ipsum dolor sit amet" {
-		t.Fatalf("JWKS plaintext = %q", plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "JWKS plaintext = %q", plaintext)
 
-	if parsed.Header.KeyID != "" {
-		t.Errorf("unprotected kid was exposed as %q", parsed.Header.KeyID)
-	}
-	if parsed.Header.JSONWebKey != nil {
-		t.Error("unprotected jwk was exposed")
-	}
-	if _, err = parsed.Header.Certificates(x509.VerifyOptions{}); err != ErrMissingX5cHeader {
-		t.Errorf("unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
-	}
-	if parsed.Header.ExtraHeaders[HeaderKey("custom")] != "preserved" {
-		t.Errorf("custom header = %v, want %q", parsed.Header.ExtraHeaders[HeaderKey("custom")], "preserved")
-	}
+	assert.Equal(t, "", parsed.Header.KeyID)
+	assert.Nil(t, parsed.Header.JSONWebKey, "unprotected jwk was exposed")
+	_, err = parsed.Header.Certificates(x509.VerifyOptions{})
+	assert.Same(t, ErrMissingX5cHeader, err, "unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
+	assert.Equal(t, "preserved", parsed.Header.ExtraHeaders[HeaderKey("custom")])
 }
 
 func TestJWERecipientUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
@@ -2007,14 +1784,10 @@ func TestJWERecipientUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 		Algorithm: RSA_OAEP,
 		Key:       &rsaTestKey.PublicKey,
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ciphertext, err := encrypter.Encrypt([]byte("Lorem ipsum dolor sit amet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	header := map[string]interface{}{
 		"kid":    "attacker",
@@ -2026,34 +1799,19 @@ func TestJWERecipientUnprotectedIdentityHeadersAreNotExposed(t *testing.T) {
 	serialized := injectJWEHeader(t, ciphertext.FullSerialize(), "header", header)
 
 	parsed, err := ParseEncrypted(serialized, []KeyAlgorithm{RSA_OAEP}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	index, headerOut, plaintext, err := parsed.DecryptMulti(rsaTestKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if index != 0 {
-		t.Fatalf("recipient index = %d, want 0", index)
-	}
-	if string(plaintext) != "Lorem ipsum dolor sit amet" {
-		t.Fatalf("plaintext = %q", plaintext)
-	}
+	require.Equal(t, 0, index, "recipient index = %d, want 0", index)
+	require.Equal(t, "Lorem ipsum dolor sit amet", string(plaintext), "plaintext = %q", plaintext)
 
-	if headerOut.KeyID != "" {
-		t.Errorf("unprotected kid was exposed as %q", headerOut.KeyID)
-	}
-	if headerOut.JSONWebKey != nil {
-		t.Error("unprotected jwk was exposed")
-	}
-	if _, err = headerOut.Certificates(x509.VerifyOptions{}); err != ErrMissingX5cHeader {
-		t.Errorf("unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
-	}
-	if headerOut.ExtraHeaders[HeaderKey("custom")] != "preserved" {
-		t.Errorf("custom header = %v, want %q", headerOut.ExtraHeaders[HeaderKey("custom")], "preserved")
-	}
+	assert.Equal(t, "", headerOut.KeyID, "unprotected kid was exposed as %q", headerOut.KeyID)
+	assert.Nil(t, headerOut.JSONWebKey, "unprotected jwk was exposed")
+	_, err = headerOut.Certificates(x509.VerifyOptions{})
+	assert.Same(t, ErrMissingX5cHeader, err, "unprotected x5c error = %v, want %v", err, ErrMissingX5cHeader)
+	assert.Equal(t, "preserved", headerOut.ExtraHeaders[HeaderKey("custom")])
 }
 
 func injectJWEHeader(t *testing.T, serialized, field string, header map[string]interface{}) string {
@@ -2061,16 +1819,12 @@ func injectJWEHeader(t *testing.T, serialized, field string, header map[string]i
 
 	var raw map[string]interface{}
 
-	if err := json.Unmarshal([]byte(serialized), &raw); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(serialized), &raw))
 
 	raw[field] = header
 
 	out, err := json.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	return string(out)
 }
@@ -2078,9 +1832,7 @@ func injectJWEHeader(t *testing.T, serialized, field string, header map[string]i
 // RFC 7518 Section 4.6.2 makes "apu" and "apv" inputs to the Concat KDF.
 func TestECDHESRoundTripWithPartyInfo(t *testing.T) {
 	recipientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	for _, alg := range []KeyAlgorithm{ECDH_ES, ECDH_ES_A128KW, ECDH_ES_A192KW, ECDH_ES_A256KW} {
 		t.Run(string(alg), func(t *testing.T) {
@@ -2089,42 +1841,28 @@ func TestECDHESRoundTripWithPartyInfo(t *testing.T) {
 				WithHeader(headerAPV, base64.RawURLEncoding.EncodeToString([]byte("Bob")))
 
 			enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: &recipientKey.PublicKey}, opts)
-			if err != nil {
-				t.Fatalf("NewEncrypter: %v", err)
-			}
+			require.NoError(t, err, "NewEncrypter")
 
 			obj, err := enc.Encrypt([]byte("plaintext"))
-			if err != nil {
-				t.Fatalf("Encrypt: %v", err)
-			}
+			require.NoError(t, err, "Encrypt")
 
 			serialized, err := obj.CompactSerialize()
-			if err != nil {
-				t.Fatalf("CompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "CompactSerialize")
 
 			parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{alg}, []ContentEncryption{A128GCM})
-			if err != nil {
-				t.Fatalf("ParseEncryptedCompact: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedCompact")
 
 			plaintext, err := parsed.Decrypt(recipientKey)
-			if err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
+			require.NoError(t, err, "Decrypt")
 
-			if string(plaintext) != "plaintext" {
-				t.Errorf("plaintext = %q, want %q", plaintext, "plaintext")
-			}
+			assert.Equal(t, "plaintext", string(plaintext), "plaintext = %q, want %q", plaintext, "plaintext")
 		})
 	}
 }
 
 func TestECDHESPartyInfoIsBoundToTheDerivedKey(t *testing.T) {
 	recipientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	apuData, apvData := []byte("Alice"), []byte("Bob")
 
@@ -2133,59 +1871,43 @@ func TestECDHESPartyInfoIsBoundToTheDerivedKey(t *testing.T) {
 		WithHeader(headerAPV, base64.RawURLEncoding.EncodeToString(apvData))
 
 	enc, err := NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: &recipientKey.PublicKey}, opts)
-	if err != nil {
-		t.Fatalf("NewEncrypter: %v", err)
-	}
+	require.NoError(t, err, "NewEncrypter")
 
 	obj, err := enc.Encrypt([]byte("plaintext"))
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
+	require.NoError(t, err, "Encrypt")
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{ECDH_ES}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatalf("ParseEncryptedCompact: %v", err)
-	}
+	require.NoError(t, err, "ParseEncryptedCompact")
 
 	epk, err := parsed.protected.getEPK()
-	if err != nil {
-		t.Fatalf("getEPK: %v", err)
-	}
+	require.NoError(t, err, "getEPK")
 
 	ephemeral, ok := epk.Key.(*ecdsa.PublicKey)
 	if !ok {
-		t.Fatalf("epk is a %T, want *ecdsa.PublicKey", epk.Key)
+		require.Failf(t, "unexpected result", "epk is a %T, want *ecdsa.PublicKey", epk.Key)
 	}
 
 	contentCipher := getContentCipher(A128GCM)
 	authData, err := parsed.computeAuthData()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parts := &aeadParts{iv: parsed.iv, ciphertext: parsed.ciphertext, tag: parsed.tag}
 
 	unbound := josecipher.DeriveECDHES(string(A128GCM), nil, nil, recipientKey, ephemeral, contentCipher.keySize())
-	if _, err = contentCipher.decrypt(unbound, authData, parts); err == nil {
-		t.Error("ciphertext decrypts under a key derived without apu/apv, so the header values are not bound to the CEK")
-	}
+	_, err = contentCipher.decrypt(unbound, authData, parts)
+	assert.Error(t, err, "ciphertext decrypts under a key derived without apu/apv, so the header values are not bound to the CEK")
 
 	bound := josecipher.DeriveECDHES(string(A128GCM), apuData, apvData, recipientKey, ephemeral, contentCipher.keySize())
-	if _, err = contentCipher.decrypt(bound, authData, parts); err != nil {
-		t.Errorf("ciphertext does not decrypt under the key derived with apu/apv: %v", err)
-	}
+	_, err = contentCipher.decrypt(bound, authData, parts)
+	assert.NoError(t, err, "ciphertext does not decrypt under the key derived with apu/apv")
 }
 
 func TestECDHESRejectsMalformedPartyInfo(t *testing.T) {
 	recipientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name  string
@@ -2200,9 +1922,8 @@ func TestECDHESRejectsMalformedPartyInfo(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := (&EncrypterOptions{}).WithHeader(headerAPU, tc.value)
 
-			if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: &recipientKey.PublicKey}, opts); err == nil {
-				t.Errorf("NewEncrypter accepted %v as apu, want an error", tc.value)
-			}
+			_, err := NewEncrypter(A128GCM, Recipient{Algorithm: ECDH_ES, Key: &recipientKey.PublicKey}, opts)
+			assert.Error(t, err, "NewEncrypter accepted %v as apu, want an error", tc.value)
 		})
 	}
 }
@@ -2211,13 +1932,9 @@ func TestECDHESRejectsMalformedPartyInfo(t *testing.T) {
 // exhaustively on the decrypt path, and that a key reserved for signing by its "use" member is not offered.
 func TestDecryptJWKSDuplicateKid(t *testing.T) {
 	recipientKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	payload := []byte("Lorem ipsum dolor sit amet")
 
@@ -2225,19 +1942,13 @@ func TestDecryptJWKSDuplicateKid(t *testing.T) {
 		Algorithm: RSA_OAEP_256,
 		Key:       &JSONWebKey{KeyID: "shared", Key: recipientKey.Public()},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := enc.Encrypt(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	msg, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	correct := JSONWebKey{KeyID: "shared", Key: recipientKey}
 	decoy := JSONWebKey{KeyID: "shared", Key: otherKey}
@@ -2257,26 +1968,18 @@ func TestDecryptJWKSDuplicateKid(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			parsed, err := ParseEncryptedCompact(msg, []KeyAlgorithm{RSA_OAEP_256}, []ContentEncryption{A128GCM})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			out, err := parsed.Decrypt(&JSONWebKeySet{Keys: tc.keys})
 
 			if tc.err {
-				if err == nil {
-					t.Fatal("expected decryption to fail")
-				}
+				require.Error(t, err, "expected decryption to fail")
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("Decrypt failed: %v", err)
-			}
-			if !bytes.Equal(out, payload) {
-				t.Error("payload mismatch")
-			}
+			require.NoError(t, err, "Decrypt failed")
+			assert.Equal(t, payload, out, "payload mismatch")
 		})
 	}
 }
@@ -2342,45 +2045,30 @@ func TestNewEncrypterRejectsUnhonouredRecipientParameters(t *testing.T) {
 			encrypter, err := NewEncrypter(A128CBC_HS256, tc.recipient, tc.opts)
 
 			if tc.wantErr {
-				if !errors.Is(err, ErrUnsupportedRecipientParameter) {
-					t.Fatalf("NewEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
-				}
+				require.ErrorIs(t, err, ErrUnsupportedRecipientParameter, "NewEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
 
 				// The multi-recipient constructor shares addRecipient, so it must agree.
-				if _, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{tc.recipient}, tc.opts); !errors.Is(err, ErrUnsupportedRecipientParameter) {
-					t.Fatalf("NewMultiEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
-				}
+				_, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{tc.recipient}, tc.opts)
+				require.ErrorIs(t, err, ErrUnsupportedRecipientParameter, "NewMultiEncrypter: got %v, want %v", err, ErrUnsupportedRecipientParameter)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("NewEncrypter: %v", err)
-			}
+			require.NoError(t, err, "NewEncrypter")
 
 			obj, err := encrypter.Encrypt([]byte("lorem ipsum"))
-			if err != nil {
-				t.Fatalf("Encrypt: %v", err)
-			}
+			require.NoError(t, err, "Encrypt")
 
 			serialized, err := obj.CompactSerialize()
-			if err != nil {
-				t.Fatalf("CompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "CompactSerialize")
 
 			parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{PBES2_HS256_A128KW}, []ContentEncryption{A128CBC_HS256})
-			if err != nil {
-				t.Fatalf("ParseEncryptedCompact: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedCompact")
 
 			output, err := parsed.Decrypt(password)
-			if err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
+			require.NoError(t, err, "Decrypt")
 
-			if string(output) != "lorem ipsum" {
-				t.Errorf("plaintext = %q, want %q", output, "lorem ipsum")
-			}
+			assert.Equal(t, "lorem ipsum", string(output), "plaintext = %q, want %q", output, "lorem ipsum")
 
 			if tc.recipient.PBES2Count == 0 {
 				return
@@ -2392,17 +2080,12 @@ func TestNewEncrypterRejectsUnhonouredRecipientParameters(t *testing.T) {
 			}
 
 			protected, err := base64.RawURLEncoding.DecodeString(strings.Split(serialized, ".")[0])
-			if err != nil {
-				t.Fatalf("decode protected header: %v", err)
-			}
+			require.NoError(t, err, "decode protected header")
 
-			if err = json.Unmarshal(protected, &header); err != nil {
-				t.Fatalf("unmarshal protected header: %v", err)
-			}
+			err = json.Unmarshal(protected, &header)
+			require.NoError(t, err, "unmarshal protected header")
 
-			if header.P2C != tc.recipient.PBES2Count {
-				t.Errorf("p2c = %d, want %d", header.P2C, tc.recipient.PBES2Count)
-			}
+			assert.Equal(t, tc.recipient.PBES2Count, header.P2C, "p2c = %d, want %d", header.P2C, tc.recipient.PBES2Count)
 		})
 	}
 }
@@ -2455,77 +2138,52 @@ func TestNewEncrypterRejectsUnusableExtraHeaders(t *testing.T) {
 			encrypter, err := NewEncrypter(A128CBC_HS256, recipient, opts)
 
 			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("NewEncrypter: got %v, want %v", err, tc.wantErr)
-				}
+				require.ErrorIs(t, err, tc.wantErr, "NewEncrypter: got %v, want %v", err, tc.wantErr)
 
 				// The multi-recipient constructor shares the rule.
-				if _, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{recipient}, opts); !errors.Is(err, tc.wantErr) {
-					t.Fatalf("NewMultiEncrypter: got %v, want %v", err, tc.wantErr)
-				}
+				_, err = NewMultiEncrypter(A128CBC_HS256, []Recipient{recipient}, opts)
+				require.ErrorIs(t, err, tc.wantErr, "NewMultiEncrypter: got %v, want %v", err, tc.wantErr)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("NewEncrypter: %v", err)
-			}
+			require.NoError(t, err, "NewEncrypter")
 
 			obj, err := encrypter.Encrypt([]byte("lorem ipsum"))
-			if err != nil {
-				t.Fatalf("Encrypt: %v", err)
-			}
+			require.NoError(t, err, "Encrypt")
 
 			serialized, err := obj.CompactSerialize()
-			if err != nil {
-				t.Fatalf("CompactSerialize: %v", err)
-			}
+			require.NoError(t, err, "CompactSerialize")
 
 			parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{DIRECT}, []ContentEncryption{A128CBC_HS256})
-			if err != nil {
-				t.Fatalf("ParseEncryptedCompact: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedCompact")
 
 			output, err := parsed.Decrypt(key)
-			if err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
+			require.NoError(t, err, "Decrypt")
 
-			if string(output) != "lorem ipsum" {
-				t.Errorf("plaintext = %q, want %q", output, "lorem ipsum")
-			}
+			assert.Equal(t, "lorem ipsum", string(output), "plaintext = %q, want %q", output, "lorem ipsum")
 		})
 	}
 }
 
 func TestDecryptMultiJWKSPerRecipientKid(t *testing.T) {
 	first, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	second, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	encrypter, err := NewMultiEncrypter(A128GCM, []Recipient{
 		{Algorithm: ECDH_ES_A128KW, Key: &first.PublicKey, KeyID: "a"},
 		{Algorithm: ECDH_ES_A128KW, Key: &second.PublicKey, KeyID: "b"},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("plaintext"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := ParseEncryptedJSON(obj.FullSerialize(), []KeyAlgorithm{ECDH_ES_A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	set := func(keys ...JSONWebKey) JSONWebKeySet {
 		return JSONWebKeySet{Keys: keys}
@@ -2583,24 +2241,16 @@ func TestDecryptMultiJWKSPerRecipientKid(t *testing.T) {
 			index, _, plaintext, err := parsed.DecryptMulti(tc.key)
 
 			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("DecryptMulti: got %v, want %v", err, tc.wantErr)
-				}
+				require.ErrorIs(t, err, tc.wantErr, "DecryptMulti: got %v, want %v", err, tc.wantErr)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("DecryptMulti: %v", err)
-			}
+			require.NoError(t, err, "DecryptMulti")
 
-			if index != tc.wantIndex {
-				t.Errorf("index = %d, want %d", index, tc.wantIndex)
-			}
+			assert.Equal(t, tc.wantIndex, index, "index = %d, want %d", index, tc.wantIndex)
 
-			if string(plaintext) != "plaintext" {
-				t.Errorf("plaintext = %q, want %q", plaintext, "plaintext")
-			}
+			assert.Equal(t, "plaintext", string(plaintext), "plaintext = %q, want %q", plaintext, "plaintext")
 		})
 	}
 }
@@ -2609,97 +2259,72 @@ func TestDecryptRejectsPerRecipientCritical(t *testing.T) {
 	key := []byte("0123456789abcdef")
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: A128KW, Key: key, KeyID: "k1"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("plaintext"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	serialized := obj.FullSerialize()
 
 	// RFC 7516 Section 7.2.2 allows the "header" member, and nothing in the protected header collides with it, so
 	// the message is well formed apart from the "crit" itself.
 	injected := strings.Replace(serialized, `{"protected":`, `{"header":{"crit":["unknown-extension"]},"protected":`, 1)
-	if injected == serialized {
-		t.Fatalf("the message has no protected header to inject alongside")
-	}
+	require.NotEqual(t, serialized, injected, "the message has no protected header to inject alongside")
 
 	for name, input := range map[string]string{"withCritical": injected, "without": serialized} {
 		t.Run(name, func(t *testing.T) {
 			parsed, err := ParseEncryptedJSON(input, []KeyAlgorithm{A128KW}, []ContentEncryption{A128GCM})
-			if err != nil {
-				t.Fatalf("ParseEncryptedJSON: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedJSON")
 
 			plaintext, err := parsed.Decrypt(key)
 			_, _, multiPlaintext, multiErr := parsed.DecryptMulti(key)
 
 			if name == "without" {
 				if err != nil || string(plaintext) != "plaintext" {
-					t.Errorf("Decrypt = %q, %v", plaintext, err)
+					assert.Failf(t, "unexpected result", "Decrypt = %q, %v", plaintext, err)
 				}
 
 				if multiErr != nil || string(multiPlaintext) != "plaintext" {
-					t.Errorf("DecryptMulti = %q, %v", multiPlaintext, multiErr)
+					assert.Failf(t, "unexpected result", "DecryptMulti = %q, %v", multiPlaintext, multiErr)
 				}
 
 				return
 			}
 
-			if !errors.Is(err, ErrUnsupportedCriticalHeader) {
-				t.Errorf("Decrypt: got %v, want %v", err, ErrUnsupportedCriticalHeader)
-			}
+			assert.ErrorIs(t, err, ErrUnsupportedCriticalHeader, "Decrypt: got %v, want %v", err, ErrUnsupportedCriticalHeader)
 
-			if !errors.Is(multiErr, ErrUnsupportedCriticalHeader) {
-				t.Errorf("DecryptMulti: got %v, want %v", multiErr, ErrUnsupportedCriticalHeader)
-			}
+			assert.ErrorIs(t, multiErr, ErrUnsupportedCriticalHeader, "DecryptMulti: got %v, want %v", multiErr, ErrUnsupportedCriticalHeader)
 		})
 	}
 }
 
 func TestDecryptMultiRejectsCriticalOnAnotherRecipient(t *testing.T) {
 	first, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	second, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	encrypter, err := NewMultiEncrypter(A128GCM, []Recipient{
 		{Algorithm: ECDH_ES_A128KW, Key: &first.PublicKey, KeyID: "a"},
 		{Algorithm: ECDH_ES_A128KW, Key: &second.PublicKey, KeyID: "b"},
 	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("plaintext"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	serialized := obj.FullSerialize()
 
 	injected := strings.Replace(serialized, `"kid":"b"`, `"kid":"b","crit":["unknown-extension"]`, 1)
-	if injected == serialized {
-		t.Fatalf("the second recipient header was not where it was expected: %s", serialized)
-	}
+	require.NotEqual(t, serialized, injected, "the second recipient header was not where it was expected: %s", serialized)
 
 	parsed, err := ParseEncryptedJSON(injected, []KeyAlgorithm{ECDH_ES_A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatalf("ParseEncryptedJSON: %v", err)
-	}
+	require.NoError(t, err, "ParseEncryptedJSON")
 
 	// The first recipient's key decrypts, and must not be allowed to.
-	if _, _, plaintext, err := parsed.DecryptMulti(first); !errors.Is(err, ErrUnsupportedCriticalHeader) {
-		t.Errorf("DecryptMulti = %q, got %v, want %v", plaintext, err, ErrUnsupportedCriticalHeader)
-	}
+	_, _, plaintext, err := parsed.DecryptMulti(first)
+	assert.ErrorIs(t, err, ErrUnsupportedCriticalHeader, "DecryptMulti = %q, got %v, want %v", plaintext, err, ErrUnsupportedCriticalHeader)
 }
 
 // RFC 7518 Sections 4.4 and 4.7 define one key length per symmetric key management algorithm identifier, but the
@@ -2726,40 +2351,28 @@ func TestSymmetricKeySizeIsBoundToTheAlgorithm(t *testing.T) {
 				{Algorithm: tc.actual, Key: first, KeyID: "one"},
 				{Algorithm: tc.actual, Key: second, KeyID: "two"},
 			}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			obj, err := encrypter.Encrypt([]byte("plaintext"))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			serialized := obj.FullSerialize()
 
 			relabelled := strings.Replace(serialized,
 				`"alg":"`+string(tc.actual)+`"`, `"alg":"`+string(tc.declared)+`"`, 1)
-			if relabelled == serialized {
-				t.Fatalf("the recipient header did not carry %q: %s", tc.actual, serialized)
-			}
+			require.NotEqual(t, serialized, relabelled, "the recipient header did not carry %q: %s", tc.actual, serialized)
 
 			parsed, err := ParseEncryptedJSON(relabelled,
 				[]KeyAlgorithm{tc.actual, tc.declared}, []ContentEncryption{A128GCM})
-			if err != nil {
-				t.Fatalf("ParseEncryptedJSON: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedJSON")
 
 			_, _, plaintext, err := parsed.DecryptMulti(first)
-			if !errors.Is(err, ErrCryptoFailure) {
-				t.Errorf("DecryptMulti: got %v, want %v", err, ErrCryptoFailure)
-			}
+			assert.Same(t, ErrCryptoFailure, err, "DecryptMulti: got %v, want %v", err, ErrCryptoFailure)
 
-			if plaintext != nil {
-				t.Errorf("DecryptMulti returned plaintext %q for a relabelled recipient", plaintext)
-			}
+			assert.Nil(t, plaintext, "DecryptMulti returned plaintext %q for a relabelled recipient", plaintext)
 
 			if _, _, plaintext, err = parsed.DecryptMulti(second); err != nil || string(plaintext) != "plaintext" {
-				t.Errorf("DecryptMulti for the untouched recipient = %q, %v", plaintext, err)
+				assert.Failf(t, "unexpected result", "DecryptMulti for the untouched recipient = %q, %v", plaintext, err)
 			}
 		})
 	}
@@ -2774,33 +2387,21 @@ func TestNewEncrypterAcceptsEmptyPartyInformation(t *testing.T) {
 	opts := new(EncrypterOptions).WithHeader(headerAPU, "").WithHeader(headerAPV, "")
 
 	encrypter, err := NewEncrypter(A128GCM, recipient, opts)
-	if err != nil {
-		t.Fatalf("NewEncrypter: %v", err)
-	}
+	require.NoError(t, err, "NewEncrypter")
 
 	obj, err := encrypter.Encrypt([]byte("plaintext"))
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
+	require.NoError(t, err, "Encrypt")
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	parsed, err := ParseEncryptedCompact(serialized, []KeyAlgorithm{ECDH_ES_A128KW}, []ContentEncryption{A128GCM})
-	if err != nil {
-		t.Fatalf("ParseEncryptedCompact: %v", err)
-	}
+	require.NoError(t, err, "ParseEncryptedCompact")
 
 	plaintext, err := parsed.Decrypt(ecTestKey256)
-	if err != nil {
-		t.Fatalf("Decrypt: %v", err)
-	}
+	require.NoError(t, err, "Decrypt")
 
-	if string(plaintext) != "plaintext" {
-		t.Errorf("plaintext = %q, want %q", plaintext, "plaintext")
-	}
+	assert.Equal(t, "plaintext", string(plaintext), "plaintext = %q, want %q", plaintext, "plaintext")
 }
 
 func TestNewEncrypterRejectsKeySizeContradictingTheAlgorithm(t *testing.T) {
@@ -2826,35 +2427,23 @@ func TestNewEncrypterRejectsKeySizeContradictingTheAlgorithm(t *testing.T) {
 			encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: tc.alg, Key: tc.key}, nil)
 
 			if tc.wantErr {
-				if !errors.Is(err, ErrInvalidKeySize) {
-					t.Fatalf("NewEncrypter: got %v, want %v", err, ErrInvalidKeySize)
-				}
+				require.Same(t, ErrInvalidKeySize, err, "NewEncrypter: got %v, want %v", err, ErrInvalidKeySize)
 
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("NewEncrypter: %v", err)
-			}
+			require.NoError(t, err, "NewEncrypter")
 
 			obj, err := encrypter.Encrypt([]byte("plaintext"))
-			if err != nil {
-				t.Fatalf("Encrypt: %v", err)
-			}
+			require.NoError(t, err, "Encrypt")
 
 			parsed, err := ParseEncryptedCompact(mustCompactSerialize(t, obj), []KeyAlgorithm{tc.alg}, []ContentEncryption{A128GCM})
-			if err != nil {
-				t.Fatalf("ParseEncryptedCompact: %v", err)
-			}
+			require.NoError(t, err, "ParseEncryptedCompact")
 
 			plaintext, err := parsed.Decrypt(tc.key)
-			if err != nil {
-				t.Fatalf("Decrypt: %v", err)
-			}
+			require.NoError(t, err, "Decrypt")
 
-			if string(plaintext) != "plaintext" {
-				t.Errorf("plaintext = %q, want %q", plaintext, "plaintext")
-			}
+			assert.Equal(t, "plaintext", string(plaintext), "plaintext = %q, want %q", plaintext, "plaintext")
 		})
 	}
 }
@@ -2863,9 +2452,7 @@ func mustCompactSerialize(t *testing.T, obj *JSONWebEncryption) string {
 	t.Helper()
 
 	serialized, err := obj.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize: %v", err)
-	}
+	require.NoError(t, err, "CompactSerialize")
 
 	return serialized
 }
@@ -2874,27 +2461,21 @@ func TestJWENilDecryptionKey(t *testing.T) {
 	key := make([]byte, 16)
 
 	encrypter, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: key}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	obj, err := encrypter.Encrypt([]byte("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	for name, decryptionKey := range map[string]any{
 		"JWK":  (*JSONWebKey)(nil),
 		"JWKS": (*JSONWebKeySet)(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := obj.Decrypt(decryptionKey); !errors.Is(err, ErrUnsupportedKeyType) {
-				t.Errorf("Decrypt() error = %v, want %v", err, ErrUnsupportedKeyType)
-			}
+			_, err := obj.Decrypt(decryptionKey)
+			assert.Same(t, ErrUnsupportedKeyType, err, "Decrypt() error = %v, want %v", err, ErrUnsupportedKeyType)
 
-			if _, _, _, err := obj.DecryptMulti(decryptionKey); err == nil {
-				t.Error("DecryptMulti() accepted a nil decryption key")
-			}
+			_, _, _, err = obj.DecryptMulti(decryptionKey)
+			assert.Error(t, err, "DecryptMulti() accepted a nil decryption key")
 		})
 	}
 }
@@ -2909,15 +2490,13 @@ func TestNewMultiEncrypterRespectsMaxRecipients(t *testing.T) {
 		{Algorithm: A128KW, Key: make([]byte, 16)},
 	}
 
-	if _, err := NewMultiEncrypter(A128GCM, rcpts, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
-		t.Errorf("expected too many recipients error, got %v", err)
-	}
+	_, err := NewMultiEncrypter(A128GCM, rcpts, nil)
+	assert.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
 
 	MaxRecipients = 2
 
-	if _, err := NewMultiEncrypter(A128GCM, rcpts, nil); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	_, err = NewMultiEncrypter(A128GCM, rcpts, nil)
+	assert.NoError(t, err, "unexpected error")
 }
 
 func TestNewEncrypterRespectsMaxRecipients(t *testing.T) {
@@ -2925,7 +2504,24 @@ func TestNewEncrypterRespectsMaxRecipients(t *testing.T) {
 
 	MaxRecipients = 0
 
-	if _, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: make([]byte, 16)}, nil); err == nil || !strings.Contains(err.Error(), "too many recipients") {
-		t.Errorf("expected too many recipients error, got %v", err)
+	_, err := NewEncrypter(A128GCM, Recipient{Algorithm: DIRECT, Key: make([]byte, 16)}, nil)
+	assert.ErrorContains(t, err, "too many recipients", "expected too many recipients error")
+}
+
+func TestNewEncrypterRejectsNilJSONWebKey(t *testing.T) {
+	var key *JSONWebKey
+
+	for _, alg := range []KeyAlgorithm{DIRECT, RSA_OAEP, ECDH_ES, ECDH_ES_A128KW, A128KW} {
+		t.Run(string(alg), func(t *testing.T) {
+			_, err := NewEncrypter(A128GCM, Recipient{Algorithm: alg, Key: key}, nil)
+			assert.Same(t, ErrUnsupportedKeyType, err)
+		})
 	}
+}
+
+func TestNewMultiEncrypterRejectsNilJSONWebKey(t *testing.T) {
+	var key *JSONWebKey
+
+	_, err := NewMultiEncrypter(A128GCM, []Recipient{{Algorithm: A128KW, Key: key}}, nil)
+	assert.Same(t, ErrUnsupportedKeyType, err)
 }
