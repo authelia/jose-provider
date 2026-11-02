@@ -25,6 +25,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"testing"
@@ -358,6 +359,305 @@ func TestBuilderRejectsClaimsTheParserRejects(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+// builderUnderTest gives the signed, encrypted, and nested builders one shape, as Builder and NestedBuilder differ in
+// their return types.
+type builderUnderTest struct {
+	claims    func(any) builderUnderTest
+	skip      func() builderUnderTest
+	token     func() (func(any) (map[string]json.RawMessage, error), error)
+	serialize func() (string, error)
+}
+
+func wrapBuilder(b Builder) builderUnderTest {
+	return builderUnderTest{
+		claims: func(i any) builderUnderTest { return wrapBuilder(b.Claims(i)) },
+		skip:   func() builderUnderTest { return wrapBuilder(b.UnsafeSkipClaimsValidation()) },
+		token: func() (func(any) (map[string]json.RawMessage, error), error) {
+			token, err := b.Token()
+			if err != nil {
+				return nil, err
+			}
+
+			return func(key any) (map[string]json.RawMessage, error) {
+				out := map[string]json.RawMessage{}
+				err := token.Claims(key, &out)
+
+				return out, err
+			}, nil
+		},
+		serialize: b.Serialize,
+	}
+}
+
+func wrapNestedBuilder(b NestedBuilder) builderUnderTest {
+	return builderUnderTest{
+		claims: func(i any) builderUnderTest { return wrapNestedBuilder(b.Claims(i)) },
+		skip:   func() builderUnderTest { return wrapNestedBuilder(b.UnsafeSkipClaimsValidation()) },
+		token: func() (func(any) (map[string]json.RawMessage, error), error) {
+			// A nested token cannot be decrypted without serializing it, so there are no claims to read back.
+			_, err := b.Token()
+
+			return nil, err
+		},
+		serialize: b.Serialize,
+	}
+}
+
+type builderKind struct {
+	name     string
+	build    func() builderUnderTest
+	tokenKey any
+	payload  func(t *testing.T, serialized string) string
+}
+
+func builderKinds(t *testing.T) []builderKind {
+	t.Helper()
+
+	key := []byte("0123456789abcdef")
+	keyAlgs := []jose.KeyAlgorithm{jose.DIRECT}
+	encAlgs := []jose.ContentEncryption{jose.A128GCM}
+	sigAlgs := []jose.SignatureAlgorithm{jose.HS256}
+
+	encrypter, err := jose.NewEncrypter(jose.A128GCM, jose.Recipient{Algorithm: jose.DIRECT, Key: key}, nil)
+	require.NoError(t, err)
+
+	nestedEncrypter, err := jose.NewEncrypter(jose.A128GCM, jose.Recipient{Algorithm: jose.DIRECT, Key: key}, (&jose.EncrypterOptions{}).WithContentType("JWT"))
+	require.NoError(t, err)
+
+	signedPayload := func(t *testing.T, serialized string) string {
+		t.Helper()
+
+		parsed, err := jose.ParseSignedCompact(serialized, sigAlgs)
+		require.NoError(t, err)
+
+		payload, err := parsed.Verify(sharedKey)
+		require.NoError(t, err)
+
+		return string(payload)
+	}
+
+	decrypt := func(t *testing.T, serialized string) string {
+		t.Helper()
+
+		parsed, err := jose.ParseEncryptedCompact(serialized, keyAlgs, encAlgs)
+		require.NoError(t, err)
+
+		plaintext, err := parsed.Decrypt(key)
+		require.NoError(t, err)
+
+		return string(plaintext)
+	}
+
+	return []builderKind{
+		{
+			name:     "Signed",
+			build:    func() builderUnderTest { return wrapBuilder(Signed(hmacSigner)) },
+			tokenKey: sharedKey,
+			payload:  signedPayload,
+		},
+		{
+			name:     "Encrypted",
+			build:    func() builderUnderTest { return wrapBuilder(Encrypted(encrypter)) },
+			tokenKey: key,
+			payload:  decrypt,
+		},
+		{
+			name:  "SignedAndEncrypted",
+			build: func() builderUnderTest { return wrapNestedBuilder(SignedAndEncrypted(hmacSigner, nestedEncrypter)) },
+			payload: func(t *testing.T, serialized string) string {
+				t.Helper()
+
+				return signedPayload(t, decrypt(t, serialized))
+			},
+		},
+	}
+}
+
+func malformedClaims() []struct {
+	name    string
+	claims  map[string]any
+	literal string
+	wantErr error
+} {
+	return []struct {
+		name    string
+		claims  map[string]any
+		literal string
+		wantErr error
+	}{
+		{"StringExpiry", map[string]any{"exp": "123"}, `"exp":"123"`, ErrUnmarshalNumericDate},
+		{"StringIssuedAt", map[string]any{"iat": "123"}, `"iat":"123"`, ErrUnmarshalNumericDate},
+		{"ExpiryAboveInt64", map[string]any{"exp": json.Number("9223372036854775808")}, `"exp":9223372036854775808`, ErrNumericDateOutOfRange},
+	}
+}
+
+func TestBuilderValidatesClaimsByDefault(t *testing.T) {
+	for _, kind := range builderKinds(t) {
+		for _, tc := range malformedClaims() {
+			t.Run(kind.name+"/"+tc.name, func(t *testing.T) {
+				_, err := kind.build().claims(tc.claims).serialize()
+				assert.ErrorIs(t, err, ErrInvalidClaims)
+				assert.ErrorIs(t, err, tc.wantErr)
+
+				_, err = kind.build().claims(tc.claims).token()
+				assert.ErrorIs(t, err, ErrInvalidClaims)
+				assert.ErrorIs(t, err, tc.wantErr)
+			})
+		}
+	}
+}
+
+func TestBuilderUnsafeSkipClaimsValidation(t *testing.T) {
+	extra := map[string]any{"sub": "subject"}
+
+	orders := []struct {
+		name  string
+		apply func(b builderUnderTest, claims any) builderUnderTest
+	}{
+		{"BeforeClaims", func(b builderUnderTest, c any) builderUnderTest { return b.skip().claims(c) }},
+		{"AfterClaims", func(b builderUnderTest, c any) builderUnderTest { return b.claims(c).skip() }},
+		{"BeforeMultipleClaims", func(b builderUnderTest, c any) builderUnderTest { return b.skip().claims(extra).claims(c) }},
+		{"BetweenClaims", func(b builderUnderTest, c any) builderUnderTest { return b.claims(extra).skip().claims(c) }},
+		{"AfterMultipleClaims", func(b builderUnderTest, c any) builderUnderTest { return b.claims(c).claims(extra).skip() }},
+	}
+
+	for _, kind := range builderKinds(t) {
+		for _, tc := range malformedClaims() {
+			for _, order := range orders {
+				t.Run(kind.name+"/"+tc.name+"/"+order.name, func(t *testing.T) {
+					b := order.apply(kind.build(), tc.claims)
+
+					serialized, err := b.serialize()
+					require.NoError(t, err)
+					assert.Contains(t, kind.payload(t, serialized), tc.literal)
+
+					read, err := b.token()
+					require.NoError(t, err)
+
+					if read == nil {
+						return
+					}
+
+					got, err := read(kind.tokenKey)
+					require.NoError(t, err)
+
+					name, value, _ := strings.Cut(tc.literal, ":")
+					assert.Equal(t, value, string(got[strings.Trim(name, `"`)]))
+				})
+			}
+		}
+	}
+}
+
+func TestBuilderUnsafeSkipClaimsValidationDoesNotChangeOriginal(t *testing.T) {
+	malformed := map[string]any{"exp": "123"}
+
+	for _, kind := range builderKinds(t) {
+		t.Run(kind.name, func(t *testing.T) {
+			original := kind.build().claims(malformed)
+			derived := original.skip()
+
+			_, err := derived.serialize()
+			require.NoError(t, err)
+
+			_, err = original.serialize()
+			assert.ErrorIs(t, err, ErrInvalidClaims)
+
+			_, err = original.claims(map[string]any{"sub": "subject"}).serialize()
+			assert.ErrorIs(t, err, ErrInvalidClaims)
+
+			empty := kind.build()
+			_ = empty.skip()
+
+			_, err = empty.claims(malformed).serialize()
+			assert.ErrorIs(t, err, ErrInvalidClaims)
+
+			_, err = derived.claims(map[string]any{"sub": "subject"}).serialize()
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// The opt-out covers one check. Anything else which stops a token being built still applies.
+func TestBuilderUnsafeSkipClaimsValidationPreservesOtherErrors(t *testing.T) {
+	outOfRange := NumericDate(math.MaxInt64)
+
+	testCases := []struct {
+		name    string
+		claims  any
+		wantErr error
+		message string
+	}{
+		{name: "Unmarshalable", claims: map[string]any{"ext": make(chan int)}, message: "unsupported type"},
+		{name: "MarshalerFailure", claims: &invalidMarshalClaims{}, message: "failed marshaling invalid claims"},
+		{name: "NonObject", claims: "invalid-claims", wantErr: ErrInvalidClaims},
+		{name: "NumericDateOutOfRange", claims: Claims{Expiry: &outOfRange}, wantErr: ErrNumericDateOutOfRange},
+	}
+
+	for _, kind := range builderKinds(t) {
+		for _, tc := range testCases {
+			t.Run(kind.name+"/"+tc.name, func(t *testing.T) {
+				for _, b := range []builderUnderTest{kind.build().skip().claims(tc.claims), kind.build().claims(tc.claims).skip()} {
+					_, err := b.serialize()
+					require.Error(t, err)
+
+					_, tokenErr := b.token()
+					require.Error(t, tokenErr)
+
+					if tc.wantErr != nil {
+						assert.ErrorIs(t, err, tc.wantErr)
+						assert.ErrorIs(t, tokenErr, tc.wantErr)
+					}
+
+					assert.ErrorContains(t, err, tc.message)
+				}
+			})
+		}
+	}
+
+	key := []byte("0123456789abcdef")
+	unencoded := mustMakeSignerWithOptions(t, (&jose.SignerOptions{}).WithBase64(false))
+
+	encrypter, err := jose.NewEncrypter(jose.A128GCM, jose.Recipient{Algorithm: jose.DIRECT, Key: key}, nil)
+	require.NoError(t, err)
+
+	nestedEncrypter, err := jose.NewEncrypter(jose.A128GCM, jose.Recipient{Algorithm: jose.DIRECT, Key: key}, (&jose.EncrypterOptions{}).WithContentType("JWT"))
+	require.NoError(t, err)
+
+	constructors := []struct {
+		name    string
+		build   func() builderUnderTest
+		wantErr error
+	}{
+		{"SignedUnencoded", func() builderUnderTest { return wrapBuilder(Signed(unencoded)) }, ErrUnencodedPayload},
+		{"NestedUnencoded", func() builderUnderTest { return wrapNestedBuilder(SignedAndEncrypted(unencoded, nestedEncrypter)) }, ErrUnencodedPayload},
+		{"NestedContentType", func() builderUnderTest { return wrapNestedBuilder(SignedAndEncrypted(hmacSigner, encrypter)) }, ErrInvalidContentType},
+	}
+
+	claims := map[string]any{"sub": "subject"}
+
+	for _, tc := range constructors {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, b := range []builderUnderTest{tc.build().skip(), tc.build().skip().claims(claims), tc.build().claims(claims).skip()} {
+				_, err := b.serialize()
+				assert.ErrorIs(t, err, tc.wantErr)
+
+				_, err = b.token()
+				assert.ErrorIs(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func mustMakeSignerWithOptions(t *testing.T, opts *jose.SignerOptions) jose.Signer {
+	t.Helper()
+
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: sharedKey}, opts)
+	require.NoError(t, err)
+
+	return signer
 }
 
 func TestBuilderNilAudienceRoundTrips(t *testing.T) {

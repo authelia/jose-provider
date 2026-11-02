@@ -36,8 +36,15 @@ type Builder interface {
 	//
 	// The merged claims must decode into Claims, so a registered claim of the
 	// wrong type, such as an "exp" which is not a number, fails with
-	// ErrInvalidClaims when the token is built.
+	// ErrInvalidClaims when the token is built, unless disabled with
+	// UnsafeSkipClaimsValidation.
 	Claims(i any) Builder
+	// UnsafeSkipClaimsValidation disables the check that the merged claims decode into Claims, so the
+	// builder can produce tokens whose claims later fail to decode into Claims. It exists for producing
+	// deliberately malformed tokens, such as when testing a validator, and must not be used when issuing
+	// tokens. NumericDate.MarshalJSON still rejects out of range values, so pass malformed values as raw
+	// map values.
+	UnsafeSkipClaimsValidation() Builder
 	// Token builds a JSONWebToken from provided data.
 	Token() (*JSONWebToken, error)
 	// Serialize serializes a token.
@@ -55,8 +62,15 @@ type NestedBuilder interface {
 	//
 	// The merged claims must decode into Claims, so a registered claim of the
 	// wrong type, such as an "exp" which is not a number, fails with
-	// ErrInvalidClaims when the token is built.
+	// ErrInvalidClaims when the token is built, unless disabled with
+	// UnsafeSkipClaimsValidation.
 	Claims(i any) NestedBuilder
+	// UnsafeSkipClaimsValidation disables the check that the merged claims decode into Claims, so the
+	// builder can produce tokens whose claims later fail to decode into Claims. It exists for producing
+	// deliberately malformed tokens, such as when testing a validator, and must not be used when issuing
+	// tokens. NumericDate.MarshalJSON still rejects out of range values, so pass malformed values as raw
+	// map values.
+	UnsafeSkipClaimsValidation() NestedBuilder
 	// Token builds a NestedJSONWebToken from provided data.
 	Token() (*NestedJSONWebToken, error)
 	// Serialize serializes a token.
@@ -64,8 +78,9 @@ type NestedBuilder interface {
 }
 
 type builder struct {
-	payload map[string]any
-	err     error
+	payload              map[string]any
+	err                  error
+	skipClaimsValidation bool
 }
 
 type signedBuilder struct {
@@ -183,14 +198,25 @@ func (b *builder) merge(m map[string]any) builder {
 	}
 
 	return builder{
-		payload: p,
+		payload:              p,
+		skipClaimsValidation: b.skipClaimsValidation,
 	}
+}
+
+func (b builder) unsafeSkipClaimsValidation() builder {
+	b.skipClaimsValidation = true
+
+	return b
 }
 
 func (b *builder) serialize() ([]byte, error) {
 	p, err := json.Marshal(b.payload)
 	if err != nil {
 		return nil, err
+	}
+
+	if b.skipClaimsValidation {
+		return p, nil
 	}
 
 	if err = json.Unmarshal(p, &Claims{}); err != nil {
@@ -210,6 +236,13 @@ func (b *builder) token(p func(any) ([]byte, error), h []jose.Header) (*JSONWebT
 func (b *signedBuilder) Claims(i any) Builder {
 	return &signedBuilder{
 		builder: b.builder.claims(i),
+		sig:     b.sig,
+	}
+}
+
+func (b *signedBuilder) UnsafeSkipClaimsValidation() Builder {
+	return &signedBuilder{
+		builder: b.unsafeSkipClaimsValidation(),
 		sig:     b.sig,
 	}
 }
@@ -257,6 +290,13 @@ func (b *encryptedBuilder) Claims(i any) Builder {
 	}
 }
 
+func (b *encryptedBuilder) UnsafeSkipClaimsValidation() Builder {
+	return &encryptedBuilder{
+		builder: b.unsafeSkipClaimsValidation(),
+		enc:     b.enc,
+	}
+}
+
 func (b *encryptedBuilder) Serialize() (string, error) {
 	enc, err := b.encrypt()
 	if err != nil {
@@ -291,6 +331,14 @@ func (b *encryptedBuilder) encrypt() (*jose.JSONWebEncryption, error) {
 func (b *nestedBuilder) Claims(i any) NestedBuilder {
 	return &nestedBuilder{
 		builder: b.builder.claims(i),
+		sig:     b.sig,
+		enc:     b.enc,
+	}
+}
+
+func (b *nestedBuilder) UnsafeSkipClaimsValidation() NestedBuilder {
+	return &nestedBuilder{
+		builder: b.unsafeSkipClaimsValidation(),
 		sig:     b.sig,
 		enc:     b.enc,
 	}
